@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ainews-sqlite": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db"]
+    },
+    "ainews-monitoring-db": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db"]
+    }
+  }
+}

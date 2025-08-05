@@ -1,0 +1,339 @@
+/* Pipeline Visualizer Component Styles */
+
+.pipeline-visualizer {
+    padding: 20px;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.pipeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.pipeline-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #333;
+}
+
+.current-source-info {
+    display: none;
+}
+
+.current-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.current-item-label {
+    color: #6c757d;
+}
+
+.current-item-name {
+    font-weight: 600;
+    color: #495057;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.current-item-count {
+    color: #17a2b8;
+    font-size: 12px;
+}
+
+/* Pipeline Stages */
+.pipeline-stages {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 40px;
+    padding: 20px 0;
+}
+
+.pipeline-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    min-width: 120px;
+}
+
+.stage-icon-wrapper {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stage-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 2;
+}
+
+.stage-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+}
+
+.spinner {
+    width: 70px;
+    height: 70px;
+    border: 3px solid rgba(0,123,255,0.1);
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.stage-name {
+    margin-top: 10px;
+    font-weight: 600;
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.stage-connector {
+    position: absolute;
+    top: 40px;
+    right: -60px;
+    width: 60px;
+    height: 2px;
+    background: #dee2e6;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.stage-connector::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, #007bff, transparent);
+    transition: left 1s ease;
+}
+
+.stage-connector.animating::after {
+    animation: flow 2s linear infinite;
+}
+
+@keyframes flow {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* Stage States */
+.stage-pending .stage-icon {
+    background: #e9ecef;
+    color: #6c757d;
+}
+
+.stage-active .stage-icon {
+    background: #007bff;
+    color: white;
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0,123,255,0.4);
+}
+
+.stage-complete .stage-icon {
+    background: #28a745;
+    color: white;
+}
+
+.stage-error .stage-icon {
+    background: #dc3545;
+    color: white;
+}
+
+/* Phase Pipeline */
+.phase-pipeline {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.phase-stage {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    position: relative;
+    flex: 1;
+    padding: 10px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.phase-icon {
+    font-size: 32px;
+}
+
+.phase-info {
+    flex: 1;
+}
+
+.phase-title {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.phase-progress-mini {
+    width: 100%;
+    height: 6px;
+    background: #dee2e6;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 5px;
+}
+
+.progress-bar-mini {
+    height: 100%;
+    background: #007bff;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+.phase-count-mini {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.phase-connector {
+    position: absolute;
+    right: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 2px;
+    background: #dee2e6;
+}
+
+/* Phase States */
+.phase-pending {
+    opacity: 0.6;
+}
+
+.phase-active {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0,123,255,0.2);
+}
+
+.phase-active .progress-bar-mini {
+    background: #007bff;
+}
+
+.phase-complete .progress-bar-mini {
+    background: #28a745;
+}
+
+/* Pulse Animation */
+.pulse {
+    animation: pulse-effect 1s ease;
+}
+
+@keyframes pulse-effect {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .pipeline-stages {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .stage-connector {
+        top: auto;
+        bottom: -20px;
+        right: 50%;
+        transform: translateX(50%) rotate(90deg);
+        width: 40px;
+    }
+    
+    .phase-pipeline {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .phase-connector {
+        display: none;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .pipeline-visualizer {
+        background: #212529;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .pipeline-header h3 {
+        color: #f8f9fa;
+    }
+    
+    .current-item-name {
+        color: #e9ecef;
+    }
+    
+    .stage-icon {
+        background: #343a40;
+    }
+    
+    .stage-name {
+        color: #adb5bd;
+    }
+    
+    .stage-connector {
+        background: #495057;
+    }
+    
+    .phase-pipeline {
+        background: #343a40;
+    }
+    
+    .phase-stage {
+        background: #212529;
+    }
+    
+    .phase-title {
+        color: #e9ecef;
+    }
+    
+    .phase-progress-mini {
+        background: #495057;
+    }
+}
