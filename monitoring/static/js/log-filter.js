@@ -36,17 +36,7 @@ class LogFilter {
             /WebSocket/,
             /connection open/,
             /HTTP\/1.1/,
-            /Error collecting system resources/,
-            // Media validation spam
-            /Изображение не прошло валидацию: Размеры \d+x\d+px меньше минимальных/,
-            /Файл слишком маленький: \d+ < \d+/,
-            /⚠️ Файл постоянно не проходит валидацию/,
-            /⏱️ Пауза .+ сек/,
-            /Retry \d+\/\d+ через/,
-            /⚠️ No rows updated for media_id/,
-            /DEBUG: Processing media_id=/,
-            /DEBUG: Exception caught for media_id/,
-            /DEBUG: Updated \d+ rows for media_id/
+            /Error collecting system resources/
         ];
     }
     

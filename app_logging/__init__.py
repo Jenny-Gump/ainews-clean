@@ -1,14 +1,15 @@
 """
-Application logging module for AI News Parser Clean.
-Provides centralized logging functionality.
+MVP logging module for AI News Parser Clean
 """
 
 from .logger import (
     get_logger,
     configure_logging,
+    log_operation,
+    log_error,
+    # Compatibility exports for old code
     LogContext,
     log_execution_time,
-    log_error,
     MonitoringErrorHandler,
     safe_operation,
     handle_websocket_error,
@@ -20,10 +21,12 @@ from .logger import (
 
 __all__ = [
     'get_logger',
-    'configure_logging',
+    'configure_logging', 
+    'log_operation',
+    'log_error',
+    # Compatibility
     'LogContext',
     'log_execution_time',
-    'log_error',
     'MonitoringErrorHandler',
     'safe_operation',
     'handle_websocket_error',

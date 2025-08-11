@@ -291,6 +291,22 @@ class ExtractMediaDownloaderPlaywright:
             
             processing_time = time.time() - start_time
             
+            # Log successful media download
+            from app_logging import log_operation
+            log_operation('media_download',
+                media_id=media_id,
+                article_id=article_id,
+                url=url[:100],  # Truncate URL
+                file_size_bytes=actual_size,
+                file_size_mb=round(actual_size / 1024 / 1024, 2),
+                media_type=media_type,
+                width=width,
+                height=height,
+                duration_seconds=processing_time,
+                success=True,
+                source_id=source_id
+            )
+            
             result = {
                 'success': True,
                 'media_id': media_id,
@@ -311,6 +327,30 @@ class ExtractMediaDownloaderPlaywright:
             processing_time = time.time() - start_time  
             error_msg = str(e)
             self.logger.debug(f"DEBUG: Exception caught for media_id {media_id}: {error_msg}")
+            
+            # Log failed media download
+            from app_logging import log_operation
+            failure_reason = '403_forbidden' if '403' in error_msg or 'Forbidden' in error_msg else \
+                           '404_not_found' if '404' in error_msg or 'Not Found' in error_msg else \
+                           'timeout' if 'timeout' in error_msg.lower() else \
+                           'file_too_small' if 'слишком маленький' in error_msg else \
+                           'file_too_large' if 'слишком большой' in error_msg else \
+                           'validation_failed' if 'валидация' in error_msg else \
+                           'download_error'
+            
+            actual_size = locals().get('actual_size', 0) if 'file_path' in locals() and Path(file_path).exists() else 0
+            
+            log_operation('media_download',
+                media_id=media_id,
+                article_id=article_id,
+                url=url[:100],  # Truncate URL
+                file_size_bytes=actual_size,
+                duration_seconds=processing_time,
+                success=False,
+                failure_reason=failure_reason,
+                error_message=error_msg[:200],  # Truncate error
+                source_id=source_id
+            )
             
             # Удаляем неполный файл если есть
             if 'file_path' in locals() and Path(file_path).exists():
@@ -411,6 +451,18 @@ class ExtractMediaDownloaderPlaywright:
                 await asyncio.sleep(delay)
         
         success_rate = (batch_stats["downloaded"] / batch_stats["processed"] * 100) if batch_stats["processed"] > 0 else 0
+        
+        # Log batch completion
+        from app_logging import log_operation
+        log_operation('media_batch_download',
+            files_processed=batch_stats["processed"],
+            files_downloaded=batch_stats["downloaded"],
+            files_failed=batch_stats["failed"],
+            success_rate=round(success_rate, 1),
+            total_size_mb=round(self.stats['total_size'] / 1024 / 1024, 2),
+            sources_info=sources_info[:200]  # Truncate sources info
+        )
+        
         self.logger.info(f"✅ Батч завершен: скачано {batch_stats['downloaded']}/{batch_stats['processed']} ({success_rate:.1f}%), ошибок: {batch_stats['failed']}")
         return batch_stats
     

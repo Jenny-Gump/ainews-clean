@@ -21,7 +21,7 @@ load_dotenv()
 from core.database import Database
 from core.config import Config
 from core.single_pipeline import SingleArticlePipeline
-from app_logging import configure_logging, get_logger, LogContext
+from app_logging import configure_logging, get_logger, LogContext, log_operation
 from services.rss_discovery import ExtractRSSDiscovery
 from change_tracking import ChangeMonitor
 
@@ -167,8 +167,8 @@ WORKFLOW С CHANGE TRACKING:
     parser.add_argument(
         '--limit',
         type=int,
-        default=5,
-        help='Лимит источников для сканирования (по умолчанию: 5)'
+        default=None,
+        help='Лимит источников для сканирования (по умолчанию: все источники)'
     )
     
     parser.add_argument(
@@ -234,6 +234,12 @@ WORKFLOW С CHANGE TRACKING:
         help='Экспортировать новые URL в таблицу articles (используется с --change-tracking)'
     )
     
+    parser.add_argument(
+        '--export-changes',
+        action='store_true',
+        help='Экспортировать изменившиеся статьи в основную таблицу (используется с --change-tracking)'
+    )
+    
     return parser.parse_args()
 
 
@@ -243,6 +249,9 @@ async def run_rss_discovery():
     
     with LogContext.operation("rss_discovery", phase=1):
         logger.info("🔍 Начинаем поиск новых статей из RSS лент...")
+        
+        # Log start for dashboard
+        log_operation('rss_discovery_start')
         
         discovery = ExtractRSSDiscovery()
         stats = await discovery.discover_from_sources()
@@ -258,17 +267,30 @@ async def run_single_pipeline():
     with LogContext.operation("single_pipeline", phase="all"):
         logger.info("🚀 Запуск Single Pipeline (1 статья через все фазы)")
         
+        # Log start for dashboard integration
+        log_operation('single_pipeline_start')
+        
         pipeline = SingleArticlePipeline()
         result = await pipeline.run_pipeline()
         
         if result.get('success'):
             logger.info(f"✅ Статья успешно обработана: {result.get('article_id')}")
+            log_operation('single_pipeline_complete', 
+                         success=True, 
+                         article_id=result.get('article_id'))
         elif result.get('error') == 'No pending articles':
             logger.info("📭 Нет статей для обработки (все pending уже обработаны)")
+            log_operation('single_pipeline_complete',
+                         success=False,
+                         reason='no_pending_articles')
         else:
             logger.warning(f"⚠️ Ошибка обработки: {result.get('error')}")
+            log_operation('single_pipeline_complete',
+                         success=False,
+                         error=result.get('error'))
         
         return result
+
 
 
 async def run_continuous_pipeline(max_articles=None, delay_between=5):
@@ -290,12 +312,16 @@ async def run_continuous_pipeline(max_articles=None, delay_between=5):
         
         signal.signal(signal.SIGINT, signal_handler)
         
-        # Запускаем пайплайн в continuous mode
-        result = await pipeline.run_pipeline(
-            continuous_mode=True,
-            max_articles=max_articles,
-            delay_between=delay_between
-        )
+        try:
+            # Запускаем пайплайн в continuous mode
+            result = await pipeline.run_pipeline(
+                continuous_mode=True,
+                max_articles=max_articles,
+                delay_between=delay_between
+            )
+        except Exception as e:
+            logger.error(f"❌ Ошибка в пайплайне: {e}")
+            result = {'processed_count': 0, 'success_count': 0, 'error_count': 1, 'wordpress_published': 0, 'duration_seconds': 0}
         
         # Выводим финальную статистику
         logger.info("\n" + "="*60)
@@ -451,143 +477,6 @@ async def run_single_worker(worker_id: str, max_articles: int = None, delay_betw
         }
 
 
-def show_session_monitoring():
-    """Показать информацию об активных сессиях и заблокированных статьях"""
-    logger = get_logger('core.main')
-    db = Database()
-    
-    with db.get_connection() as conn:
-        # Активные сессии
-        cursor = conn.execute("""
-            SELECT 
-                session_uuid,
-                worker_id,
-                status,
-                started_at,
-                last_heartbeat,
-                current_article_id,
-                total_articles,
-                success_count,
-                error_count,
-                hostname,
-                pid,
-                CASE 
-                    WHEN last_heartbeat < datetime('now', '-5 minutes') THEN 'STALE'
-                    WHEN last_heartbeat < datetime('now', '-2 minutes') THEN 'INACTIVE' 
-                    ELSE 'ACTIVE'
-                END as health_status
-            FROM pipeline_sessions
-            WHERE status = 'active'
-            ORDER BY started_at DESC
-        """)
-        
-        sessions = cursor.fetchall()
-        
-        logger.info("\n👥 АКТИВНЫЕ СЕССИИ:")
-        logger.info("=" * 120)
-        
-        if not sessions:
-            logger.info("📭 Нет активных сессий")
-        else:
-            logger.info(f"{'Worker ID':<20} {'Status':<8} {'Health':<8} {'Started':<19} {'Articles':<8} {'S/E':<7} {'Current Article':<15}")
-            logger.info("-" * 120)
-            
-            for session in sessions:
-                worker_id = session['worker_id'][:19]
-                status = session['status']
-                health = session['health_status']
-                started = session['started_at'][:19] if session['started_at'] else 'Unknown'
-                total = session['total_articles'] or 0
-                success = session['success_count'] or 0
-                error = session['error_count'] or 0
-                current_article = session['current_article_id'][:14] if session['current_article_id'] else 'None'
-                
-                health_icon = {
-                    'ACTIVE': '🟢',
-                    'INACTIVE': '🟡', 
-                    'STALE': '🔴'
-                }.get(health, '❓')
-                
-                logger.info(f"{worker_id:<20} {status:<8} {health_icon}{health:<7} {started:<19} {total:<8} {success}/{error:<6} {current_article:<15}")
-        
-        # Заблокированные статьи
-        cursor = conn.execute("""
-            SELECT 
-                sl.article_id,
-                sl.session_uuid,
-                sl.worker_id,
-                sl.locked_at,
-                sl.heartbeat,
-                a.title,
-                a.content_status,
-                CASE 
-                    WHEN sl.heartbeat < datetime('now', '-5 minutes') THEN 'EXPIRED'
-                    WHEN sl.heartbeat < datetime('now', '-2 minutes') THEN 'STALE'
-                    ELSE 'ACTIVE'
-                END as lock_status
-            FROM session_locks sl
-            LEFT JOIN articles a ON sl.article_id = a.article_id
-            WHERE sl.status = 'locked'
-            ORDER BY sl.locked_at DESC
-            LIMIT 20
-        """)
-        
-        locks = cursor.fetchall()
-        
-        logger.info(f"\n🔒 ЗАБЛОКИРОВАННЫЕ СТАТЬИ ({len(locks)}):")
-        logger.info("=" * 120)
-        
-        if not locks:
-            logger.info("📭 Нет заблокированных статей")
-        else:
-            logger.info(f"{'Article ID':<15} {'Lock Status':<12} {'Worker':<20} {'Locked At':<19} {'Title':<30}")
-            logger.info("-" * 120)
-            
-            for lock in locks:
-                article_id = lock['article_id'][:14]
-                lock_status = lock['lock_status']
-                worker_id = (lock['worker_id'] or 'Unknown')[:19]
-                locked_at = lock['locked_at'][:19] if lock['locked_at'] else 'Unknown'
-                title = (lock['title'] or 'No title')[:29]
-                
-                status_icon = {
-                    'ACTIVE': '🟢',
-                    'STALE': '🟡',
-                    'EXPIRED': '🔴'
-                }.get(lock_status, '❓')
-                
-                logger.info(f"{article_id:<15} {status_icon}{lock_status:<11} {worker_id:<20} {locked_at:<19} {title:<30}")
-        
-        # Статистика системы
-        cursor = conn.execute("""
-            SELECT 
-                COUNT(*) as total_articles,
-                SUM(CASE WHEN content_status = 'pending' THEN 1 ELSE 0 END) as pending_articles,
-                SUM(CASE WHEN processing_session_id IS NOT NULL THEN 1 ELSE 0 END) as processing_articles
-            FROM articles
-        """)
-        
-        stats = cursor.fetchone()
-        
-        logger.info(f"\n📊 СИСТЕМНАЯ СТАТИСТИКА:")
-        logger.info("-" * 40)
-        logger.info(f"📚 Всего статей:        {stats['total_articles']:>6}")
-        logger.info(f"⏳ Ожидают обработки:   {stats['pending_articles']:>6}")  
-        logger.info(f"🔄 В обработке:         {stats['processing_articles']:>6}")
-        
-        # Рекомендации по очистке
-        cursor = conn.execute("""
-            SELECT COUNT(*) as stale_sessions
-            FROM pipeline_sessions
-            WHERE status = 'active'
-              AND last_heartbeat < datetime('now', '-30 minutes')
-        """)
-        
-        stale_count = cursor.fetchone()['stale_sessions']
-        if stale_count > 0:
-            logger.info(f"\n⚠️  ВНИМАНИЕ: Найдено {stale_count} устаревших сессий")
-            logger.info("💡 Рекомендация: очистить устаревшие сессии:")
-            logger.info("   python -c \"from core.session_manager import SessionManager; SessionManager().cleanup_stale_sessions()\"")
 
 
 async def process_specific_article(article_id: str):
@@ -881,7 +770,7 @@ async def run_change_tracking(args):
             logger.info("⚠️ Экспорт в основной пайплайн пока не реализован")
             logger.info("💡 Статьи остаются в таблице tracked_articles")
     
-    elif args.tracking_stats or not (args.scan or args.complete_scan or args.export or args.extract_urls or args.show_new_urls or args.export_articles):
+    elif args.tracking_stats or not (args.scan or args.complete_scan or args.export or args.extract_urls or args.show_new_urls or args.export_articles or args.export_changes):
         # Показать статистику (по умолчанию)
         with LogContext.operation("change_tracking_stats"):
             logger.info("📊 СТАТИСТИКА ОТСЛЕЖИВАНИЯ ИЗМЕНЕНИЙ")
@@ -1007,10 +896,35 @@ async def run_change_tracking(args):
                     logger.info(f"   Для обработки экспортированных статей используйте:")
                     logger.info(f"   python core/main.py --single-pipeline")
     
+    elif args.export_changes:
+        # Экспорт изменившихся статей из tracked_articles
+        with LogContext.operation("change_tracking_export_changes"):
+            logger.info("📤 Экспорт изменившихся статей в основную таблицу...")
+            
+            monitor = ChangeMonitor()
+            results = monitor.export_changed_articles(limit=args.limit)
+            
+            logger.info(f"\n📊 РЕЗУЛЬТАТЫ ЭКСПОРТА ИЗМЕНЕНИЙ:")
+            logger.info("=" * 60)
+            logger.info(f"  📤 Экспортировано:     {results['exported']}")
+            
+            if 'total_available' in results:
+                logger.info(f"  📋 Было доступно:      {results['total_available']}")
+            
+            if results.get('error'):
+                logger.error(f"❌ Ошибка: {results['error']}")
+            else:
+                logger.info(f"✅ {results.get('message', 'Экспорт завершен')}")
+                
+                if results['exported'] > 0:
+                    logger.info(f"\n💡 СЛЕДУЮЩИЙ ШАГ:")
+                    logger.info(f"   Для обработки экспортированных статей используйте:")
+                    logger.info(f"   python core/main.py --continuous-pipeline")
+    
     else:
         logger.info("❌ Неизвестная команда для --change-tracking")
         logger.info("💡 Используйте: --scan, --complete-scan, --export, --tracking-stats,")
-        logger.info("    --extract-urls, --show-new-urls, или --export-articles")
+        logger.info("    --extract-urls, --show-new-urls, --export-articles, или --export-changes")
 
 
 async def run_monitoring(rss_url: str, limit: int = 20):

@@ -646,7 +646,7 @@ class MonitoringDatabase:
                 media_downloaded=media_stats[1],      # media_downloaded
                 media_failed=media_stats[2],          # media_failed
                 avg_article_parse_time_ms=perf_stats[0] or 0.0 if perf_stats else 0.0,
-                avg_media_download_time_ms=0.0,  # TODO: Implement when media timing is tracked
+                avg_media_download_time_ms=0.0,  # Media timing tracking disabled
                 database_size_mb=db_size[0] / 1024 / 1024 if db_size else 0.0,  # Convert to MB
                 last_update=datetime.now()
             )

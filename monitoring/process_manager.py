@@ -35,48 +35,6 @@ class ProcessStatus(Enum):
     ERROR = "error"
 
 
-class CircuitBreaker:
-    """Circuit breaker pattern for handling repeated failures"""
-    
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.failure_count = 0
-        self.last_failure_time = None
-        self.is_open = False
-    
-    def record_success(self):
-        """Reset the circuit breaker on success"""
-        self.failure_count = 0
-        self.is_open = False
-        self.last_failure_time = None
-    
-    def record_failure(self):
-        """Record a failure and potentially open the circuit"""
-        self.failure_count += 1
-        self.last_failure_time = datetime.now()
-        
-        if self.failure_count >= self.failure_threshold:
-            self.is_open = True
-            return True
-        return False
-    
-    def can_attempt(self) -> bool:
-        """Check if we can attempt an operation"""
-        if not self.is_open:
-            return True
-        
-        # Check if recovery timeout has passed
-        if self.last_failure_time:
-            time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
-            if time_since_failure >= self.recovery_timeout:
-                # Try half-open state
-                self.is_open = False
-                self.failure_count = 0
-                return True
-        
-        return False
-
 
 class ProcessManager:
     """
@@ -101,7 +59,6 @@ class ProcessManager:
         # Working directory - parent of monitoring directory
         self.working_dir = Path(__file__).parent.parent
         self.parser_script = self.working_dir / "core" / "main.py"
-        self.pid_file = self.working_dir / "parser.pid"
         
         # Status tracking
         self.start_time: Optional[datetime] = None
@@ -132,9 +89,7 @@ class ProcessManager:
         self.default_timeout = 30  # 30 seconds default timeout
         self._last_output_time: Optional[datetime] = None
         
-        # Circuit breakers for different operations
-        self.start_circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=300)
-        self.memory_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=120)
+        # Circuit breakers removed - zombie fix cleanup
         
         # Recovery mechanisms
         self._recovery_thread: Optional[threading.Thread] = None
@@ -208,45 +163,7 @@ class ProcessManager:
             self.logger.warning(f"Parser already running with status: {self.status.value}")
             return False
         
-        # Check for existing parser processes
-        existing_processes = self._find_existing_parser_processes()
-        if existing_processes:
-            self.logger.error(f"Found {len(existing_processes)} existing parser processes: {existing_processes}")
-            # Kill them first
-            for proc in existing_processes:
-                try:
-                    psutil.Process(proc).kill()
-                    self.logger.warning(f"Killed existing parser process {proc}")
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            # Wait a bit for cleanup
-            time.sleep(2)
-        
-        # Check PID file
-        if self.pid_file.exists():
-            try:
-                with open(self.pid_file, 'r') as f:
-                    old_pid = int(f.read().strip())
-                # Check if process still exists
-                try:
-                    psutil.Process(old_pid)
-                    self.logger.error(f"Parser process {old_pid} still running according to PID file")
-                    # Try to kill it
-                    try:
-                        psutil.Process(old_pid).kill()
-                        self.logger.warning(f"Killed old parser process {old_pid}")
-                    except:
-                        pass
-                except psutil.NoSuchProcess:
-                    self.logger.info("Removing stale PID file")
-                os.remove(self.pid_file)
-            except Exception as e:
-                self.logger.warning(f"Error checking PID file: {e}")
-        
-        # Check circuit breaker
-        if not self.start_circuit_breaker.can_attempt():
-            self.logger.error("Start circuit breaker is open - too many recent failures")
-            return False
+        # Circuit breaker check removed - zombie fix cleanup
         
         try:
             # Prepare command
@@ -278,14 +195,6 @@ class ProcessManager:
             self.start_time = datetime.now()
             self._emergency_stop_requested = False
             
-            # Write PID file
-            try:
-                with open(self.pid_file, 'w') as f:
-                    f.write(str(self.pid))
-                self.logger.debug(f"Created PID file with PID {self.pid}")
-            except Exception as e:
-                self.logger.warning(f"Failed to create PID file: {e}")
-            
             # Reset tracking variables
             self.current_source = None
             self.total_sources = 0
@@ -305,14 +214,14 @@ class ProcessManager:
             })
             
             self.logger.info(f"Parser started successfully with PID: {self.pid}")
-            self.start_circuit_breaker.record_success()
+            # Circuit breaker success recording removed - zombie fix cleanup
             self._recovery_attempts = 0
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to start parser: {e}")
             self._notify_status_change(ProcessStatus.ERROR, {'error': str(e)})
-            self.start_circuit_breaker.record_failure()
+            # Circuit breaker failure recording removed - zombie fix cleanup
             
             # Try automatic recovery if enabled
             if self._recovery_enabled and self._recovery_attempts < self._max_recovery_attempts:
@@ -395,7 +304,7 @@ class ProcessManager:
     
     def stop_parser(self, timeout: int = 30) -> bool:
         """
-        Gracefully stop the parser process and all child processes
+        Gracefully stop the parser process
         
         Args:
             timeout: Maximum time to wait for graceful shutdown
@@ -418,15 +327,6 @@ class ProcessManager:
             self._memory_monitoring = False
             self._monitoring_output = False
             
-            # Get all child processes before stopping
-            children = []
-            try:
-                parent = psutil.Process(self.pid)
-                children = parent.children(recursive=True)
-                self.logger.info(f"Found {len(children)} child processes to stop")
-            except psutil.NoSuchProcess:
-                self.logger.warning(f"Parent process {self.pid} already gone")
-            
             # If paused, resume first to allow graceful shutdown
             if self.status == ProcessStatus.PAUSED:
                 try:
@@ -439,36 +339,15 @@ class ProcessManager:
             # Send SIGTERM for graceful shutdown
             self.process.terminate()
             
-            # Also terminate all children
-            for child in children:
-                try:
-                    child.terminate()
-                except psutil.NoSuchProcess:
-                    pass
-            
             # Wait for process to finish
             try:
                 self.process.wait(timeout=timeout)
                 self.logger.info(f"Parser stopped gracefully (PID: {self.pid})")
             except subprocess.TimeoutExpired:
                 self.logger.warning(f"Parser didn't stop within {timeout}s, forcing kill")
-                
-                # Force kill parent
                 self.process.kill()
-                
-                # Force kill all children
-                for child in children:
-                    try:
-                        child.kill()
-                        self.logger.info(f"Force killed child process {child.pid}")
-                    except psutil.NoSuchProcess:
-                        pass
-                
                 self.process.wait()
-                self.logger.info(f"Parser and all children force killed")
-            
-            # Double check - kill any remaining processes by pattern
-            self._kill_remaining_processes()
+                self.logger.info(f"Parser force killed (PID: {self.pid})")
             
             # Cleanup
             self._cleanup_process()
@@ -479,44 +358,6 @@ class ProcessManager:
             self.logger.error(f"Failed to stop parser: {e}")
             self._notify_status_change(ProcessStatus.ERROR, {'error': str(e)})
             return False
-    
-    def _kill_remaining_processes(self):
-        """Kill any remaining parser processes by pattern matching"""
-        try:
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    cmdline = proc.info.get('cmdline', [])
-                    if cmdline and any('main.py' in arg for arg in cmdline):
-                        # Check if it's our parser
-                        if any(arg for arg in cmdline if 'rss' in arg or 'parse' in arg or 'media' in arg):
-                            pid = proc.info['pid']
-                            if pid != os.getpid():  # Don't kill ourselves
-                                proc.kill()
-                                self.logger.info(f"Killed remaining parser process {pid}")
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-        except Exception as e:
-            self.logger.error(f"Error killing remaining processes: {e}")
-    
-    def _find_existing_parser_processes(self) -> List[int]:
-        """Find any existing parser processes"""
-        found_pids = []
-        try:
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    cmdline = proc.info.get('cmdline', [])
-                    if cmdline and any('main.py' in arg for arg in cmdline):
-                        # Check if it's our parser
-                        if any(arg for arg in cmdline if 'rss' in arg or 'parse' in arg or 'media' in arg or '--wordpress' in arg):
-                            pid = proc.info['pid']
-                            if pid != os.getpid():  # Don't check ourselves
-                                found_pids.append(pid)
-                                self.logger.debug(f"Found existing parser process {pid}: {' '.join(cmdline[:3])}")
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-        except Exception as e:
-            self.logger.error(f"Error finding existing processes: {e}")
-        return found_pids
     
     def emergency_stop(self) -> bool:
         """
@@ -854,14 +695,6 @@ class ProcessManager:
         self._memory_monitoring = False
         self._monitoring_output = False
         
-        # Remove PID file
-        if self.pid_file.exists():
-            try:
-                os.remove(self.pid_file)
-                self.logger.debug("Removed PID file")
-            except Exception as e:
-                self.logger.warning(f"Failed to remove PID file: {e}")
-        
         if self._memory_monitor_thread and self._memory_monitor_thread.is_alive():
             try:
                 self._memory_monitor_thread.join(timeout=5)
@@ -1151,18 +984,7 @@ class ProcessManager:
                 'health_percentage': round(health_percentage, 1),
                 'recent_checks': len(recent_checks)
             },
-            'circuit_breakers': {
-                'start': {
-                    'is_open': self.start_circuit_breaker.is_open,
-                    'failure_count': self.start_circuit_breaker.failure_count,
-                    'can_attempt': self.start_circuit_breaker.can_attempt()
-                },
-                'memory': {
-                    'is_open': self.memory_circuit_breaker.is_open,
-                    'failure_count': self.memory_circuit_breaker.failure_count,
-                    'can_attempt': self.memory_circuit_breaker.can_attempt()
-                }
-            },
+            # Circuit breakers removed - zombie fix cleanup
             'recovery': {
                 'enabled': self._recovery_enabled,
                 'attempts': self._recovery_attempts,

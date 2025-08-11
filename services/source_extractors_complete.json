@@ -1,0 +1,751 @@
+{
+  "metadata": {
+    "description": "Индивидуальные extractors для всех 47 web-источников",
+    "version": "2.0", 
+    "last_updated": "2025-08-10",
+    "total_sources": 47
+  },
+  "extractors": {
+    "anthropic": {
+      "name": "Anthropic News",
+      "url": "https://www.anthropic.com/news",
+      "patterns": [
+        "\\]\\((https://www\\.anthropic\\.com/news/[^)]+)\\)",
+        "\\*\\*([^*]+)\\*\\*[^\\]]*\\]\\((https://www\\.anthropic\\.com/news/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\*\\*([^*]+)\\*\\*",
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Anthropic:\\s*",
+        "\\\\\\\\",
+        "\\s*\\\\\\\\\\s*"
+      ],
+      "exclude_urls": [
+        "/team", "/careers", "/safety", "/about", "/contact", "mailto:", "press-kit"
+      ],
+      "status": "configured"
+    },
+    "ai21": {
+      "name": "AI21 Labs Blog",
+      "url": "https://www.ai21.com/blog",
+      "patterns": [
+        "\\[\\*\\*([^*]+)\\*\\*\\]\\((https://www\\.ai21\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\*\\*([^*]+)\\*\\*"
+      ],
+      "title_cleanup": [
+        "^AI21:\\s*",
+        "\\s*:\\s*"
+      ],
+      "exclude_urls": [
+        "/careers", "/about", "/contact", "/page/", "#site-navigation", "#content"
+      ],
+      "status": "configured"
+    },
+    "openai_tracking": {
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/",
+      "patterns": [
+        "\\[([^\\]]+)\\\\\\\\[^\\]]*\\]\\((https://openai\\.com/index/[^)]+)\\)",
+        "\\[([^\\]]+)\\\\\\\\[^\\]]*\\]\\((https://openai\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\\\]+)\\\\\\\\"
+      ],
+      "title_cleanup": [
+        "^OpenAI:\\s*",
+        "\\\\\\\\.*$"
+      ],
+      "exclude_urls": [
+        "/api", "/pricing", "/safety", "/careers", "chatgpt.com", "sora.com", "platform.openai.com"
+      ],
+      "status": "configured"
+    },
+    "huggingface": {
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog",
+      "patterns": [
+        "\\[\\*\\*([^*]+)\\*\\*[^\\]]*\\]\\((https://huggingface\\.co/blog/[^)]+)\\)",
+        "\\]\\((https://huggingface\\.co/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\*\\*([^*]+)\\*\\*"
+      ],
+      "title_cleanup": [
+        "\\\\\\\\.*$",
+        "By\\s*$",
+        "•.*$"
+      ],
+      "exclude_urls": [
+        "/models", "/datasets", "/spaces", "/docs", "/community", "/assets/", "\\.png$", "\\.jpg$", "\\.gif$"
+      ],
+      "status": "configured"
+    },
+    "cohere": {
+      "name": "Cohere Blog",
+      "url": "https://cohere.com/blog",
+      "patterns": [
+        "\\]\\((https://cohere\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Cohere:\\s*"
+      ],
+      "exclude_urls": [
+        "/pricing", "/about", "/careers"
+      ],
+      "status": "configured"
+    },
+    "stability": {
+      "name": "Stability AI News",
+      "url": "https://stability.ai/news",
+      "patterns": [
+        "\\]\\((https://stability\\.ai/news/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Stability AI:\\s*"
+      ],
+      "exclude_urls": [
+        "/careers", "/about"
+      ],
+      "status": "configured"
+    },
+    "elevenlabs": {
+      "name": "ElevenLabs Blog",
+      "url": "https://elevenlabs.io/blog",
+      "patterns": [
+        "\\]\\((https://elevenlabs\\.io/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^ElevenLabs:\\s*"
+      ],
+      "exclude_urls": [
+        "/pricing", "/about"
+      ],
+      "status": "configured"
+    },
+    "cerebras": {
+      "name": "Cerebras AI Blog",
+      "url": "https://cerebras.ai/blog",
+      "patterns": [
+        "\\]\\((https://cerebras\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Cerebras:\\s*"
+      ],
+      "exclude_urls": [
+        "/careers", "/about"
+      ],
+      "status": "configured"
+    },
+    "mistral": {
+      "name": "Mistral AI News",
+      "url": "https://mistral.ai/news",
+      "patterns": [
+        "\\]\\((https://mistral\\.ai/news/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Mistral:\\s*",
+        "^Mistral AI:\\s*"
+      ],
+      "exclude_urls": [
+        "/careers", "/team"
+      ],
+      "status": "configured"
+    },
+    "together": {
+      "name": "Together AI Blog",
+      "url": "https://www.together.ai/blog",
+      "patterns": [
+        "\\]\\((https://www\\.together\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Together:\\s*",
+        "^Together AI:\\s*"
+      ],
+      "exclude_urls": [
+        "/pricing", "/about"
+      ],
+      "status": "configured"
+    },
+    "perplexity": {
+      "name": "Perplexity AI Blog",
+      "url": "https://blog.perplexity.ai/",
+      "patterns": [
+        "\\]\\((https://blog\\.perplexity\\.ai/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Perplexity:\\s*"
+      ],
+      "exclude_urls": [
+        "/about"
+      ],
+      "status": "configured"
+    },
+    "runway": {
+      "name": "Runway ML Research",
+      "url": "https://research.runwayml.com/",
+      "patterns": [
+        "\\]\\((https://research\\.runwayml\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Runway:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "scale": {
+      "name": "Scale AI Blog",
+      "url": "https://scale.com/blog",
+      "patterns": [
+        "\\]\\((https://scale\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Scale:\\s*"
+      ],
+      "exclude_urls": [
+        "/pricing", "/about"
+      ],
+      "status": "configured"
+    },
+    "crusoe": {
+      "name": "Crusoe AI Blog", 
+      "url": "https://crusoe.ai/blog/",
+      "patterns": [
+        "\\]\\((https://crusoe\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Crusoe:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "lambda": {
+      "name": "Lambda Labs Blog",
+      "url": "https://lambda.ai/blog", 
+      "patterns": [
+        "\\]\\((https://lambda\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Lambda:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "c3ai": {
+      "name": "C3 AI Blog",
+      "url": "https://c3.ai/blog/",
+      "patterns": [
+        "\\]\\((https://c3\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^C3 AI:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "instabase": {
+      "name": "Instabase Blog",
+      "url": "https://instabase.com/blog/",
+      "patterns": [
+        "\\]\\((https://instabase\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Instabase:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "tempus": {
+      "name": "Tempus Tech Blog",
+      "url": "https://www.tempus.com/tech-blog/",
+      "patterns": [
+        "\\]\\((https://www\\.tempus\\.com/tech-blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Tempus:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "writer": {
+      "name": "Writer Engineering Blog",
+      "url": "https://writer.com/engineering/",
+      "patterns": [
+        "\\]\\((https://writer\\.com/engineering/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Writer:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "google_ai_blog": {
+      "name": "Google AI Blog",
+      "url": "https://blog.google/technology/ai/",
+      "patterns": [
+        "\\]\\((https://blog\\.google/technology/ai/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Google:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "google_research": {
+      "name": "Google Research Blog",
+      "url": "https://research.google/blog/",
+      "patterns": [
+        "\\]\\((https://research\\.google/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Google:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "deepmind": {
+      "name": "DeepMind Blog",
+      "url": "https://deepmind.google/discover/blog/",
+      "patterns": [
+        "\\]\\((https://deepmind\\.google/discover/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^DeepMind:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "google_cloud_ai": {
+      "name": "Google Cloud AI Blog",
+      "url": "https://cloud.google.com/blog/products/ai-machine-learning",
+      "patterns": [
+        "\\]\\((https://cloud\\.google\\.com/blog/products/ai-machine-learning/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Google Cloud:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "microsoft_ai_news": {
+      "name": "Microsoft AI News",
+      "url": "https://news.microsoft.com/source/topics/ai/",
+      "patterns": [
+        "\\]\\((https://news\\.microsoft\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Microsoft:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "databricks_tracking": {
+      "name": "Databricks AI Blog",
+      "url": "https://www.databricks.com/blog/category/engineering/ai",
+      "patterns": [
+        "\\]\\((https://www\\.databricks\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Databricks:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "stanford_ai": {
+      "name": "Stanford AI Lab",
+      "url": "https://ai.stanford.edu/",
+      "patterns": [
+        "\\]\\((https://ai\\.stanford\\.edu/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Stanford:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "mit_news": {
+      "name": "MIT News - AI",
+      "url": "https://news.mit.edu/topic/artificial-intelligence2",
+      "patterns": [
+        "\\]\\((https://news\\.mit\\.edu/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^MIT:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "aws_ai": {
+      "name": "AWS AI Blog",
+      "url": "https://aws.amazon.com/ai/",
+      "patterns": [
+        "\\]\\((https://aws\\.amazon\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^AWS:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "suno": {
+      "name": "Suno AI Blog",
+      "url": "https://suno.com/blog",
+      "patterns": [
+        "\\]\\((https://suno\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Suno:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "waymo": {
+      "name": "Waymo Blog",
+      "url": "https://waymo.com/blog/",
+      "patterns": [
+        "\\]\\((https://waymo\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Waymo:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "standardbots": {
+      "name": "Standard Bots Blog",
+      "url": "https://standardbots.com/blog",
+      "patterns": [
+        "\\]\\((https://standardbots\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Standard Bots:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "abb_robotics": {
+      "name": "ABB Robotics News",
+      "url": "https://new.abb.com/products/robotics/news-and-media",
+      "patterns": [
+        "\\]\\((https://new\\.abb\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^ABB:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "fanuc": {
+      "name": "FANUC America News",
+      "url": "https://www.fanucamerica.com/news-resources/articles/all",
+      "patterns": [
+        "\\]\\((https://www\\.fanucamerica\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^FANUC:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "kinova": {
+      "name": "Kinova Robotics Press",
+      "url": "https://www.kinovarobotics.com/press",
+      "patterns": [
+        "\\]\\((https://www\\.kinovarobotics\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Kinova:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "doosan_robotics": {
+      "name": "Doosan Robotics News",
+      "url": "https://www.doosanrobotics.com/en/about/promotion/news/",
+      "patterns": [
+        "\\]\\((https://www\\.doosanrobotics\\.com/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Doosan:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "manus": {
+      "name": "Manus Blog",
+      "url": "https://manus.im/blog",
+      "patterns": [
+        "\\]\\((https://manus\\.im/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Manus:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "pathai": {
+      "name": "PathAI News",
+      "url": "https://www.pathai.com/news/",
+      "patterns": [
+        "\\]\\((https://www\\.pathai\\.com/news/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^PathAI:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "augmedix": {
+      "name": "Augmedix Resources",
+      "url": "https://www.augmedix.com/resources",
+      "patterns": [
+        "\\]\\((https://www\\.augmedix\\.com/resources/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Augmedix:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "openevidence": {
+      "name": "OpenEvidence Announcements",
+      "url": "https://www.openevidence.com/announcements",
+      "patterns": [
+        "\\]\\((https://www\\.openevidence\\.com/announcements/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^OpenEvidence:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "b12": {
+      "name": "B12 Blog",
+      "url": "https://www.b12.io/blog/",
+      "patterns": [
+        "\\]\\((https://www\\.b12\\.io/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^B12:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "appzen": {
+      "name": "AppZen Blog",
+      "url": "https://www.appzen.com/blog",
+      "patterns": [
+        "\\]\\((https://www\\.appzen\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^AppZen:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "alpha_sense": {
+      "name": "AlphaSense Blog",
+      "url": "https://www.alpha-sense.com/blog/",
+      "patterns": [
+        "\\]\\((https://www\\.alpha-sense\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^AlphaSense:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "mindfoundry": {
+      "name": "Mind Foundry Blog",
+      "url": "https://www.mindfoundry.ai/blog",
+      "patterns": [
+        "\\]\\((https://www\\.mindfoundry\\.ai/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Mind Foundry:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "nscale": {
+      "name": "nScale Blog",
+      "url": "https://www.nscale.com/blog",
+      "patterns": [
+        "\\]\\((https://www\\.nscale\\.com/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^nScale:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "audioscenic": {
+      "name": "AudioScenic News",
+      "url": "https://www.audioscenic.com/news",
+      "patterns": [
+        "\\]\\((https://www\\.audioscenic\\.com/news/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^AudioScenic:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "soundhound": {
+      "name": "SoundHound Voice AI Blog",
+      "url": "https://www.soundhound.com/voice-ai-blog/",
+      "patterns": [
+        "\\]\\((https://www\\.soundhound\\.com/voice-ai-blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^SoundHound:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    },
+    "uizard": {
+      "name": "Uizard Blog",
+      "url": "https://uizard.io/blog/",
+      "patterns": [
+        "\\]\\((https://uizard\\.io/blog/[^)]+)\\)"
+      ],
+      "title_extraction": [
+        "\\[([^\\]]+)\\]\\("
+      ],
+      "title_cleanup": [
+        "^Uizard:\\s*"
+      ],
+      "exclude_urls": [],
+      "status": "configured"
+    }
+  }
+}

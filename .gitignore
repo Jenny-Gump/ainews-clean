@@ -72,8 +72,9 @@ monitoring_startup.log
 error_exports/
 
 # Backups
-backups/*.sql
-backups/*.db
+backups/
+*.backup
+*.bak
 
 # Media temporary files
 *.tmp

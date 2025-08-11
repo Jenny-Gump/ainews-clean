@@ -22,7 +22,7 @@ class ContentStatus(Enum):
     """Content parsing status enumeration"""
     PENDING = "pending"
     PARSING = "parsing"
-    PARSED = "parsed"
+    COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
     RATE_LIMITED = "rate_limited"

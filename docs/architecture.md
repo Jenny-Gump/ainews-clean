@@ -1,27 +1,32 @@
-# AI News Parser Clean - Architecture Overview
+# Architecture - Single Pipeline System + External Prompts
+
+**Обновлено**: 9 августа 2025 - Session Management Fixes + Stable Parallel Processing
 
 ## System Design
 
-The AI News Parser Clean is built with a modular, five-phase architecture that separates concerns and ensures reliability. The system processes AI news from RSS feeds through content extraction, media processing, WordPress preparation, and final publishing.
+AI News Parser использует архитектуру единого пайплайна (Single Pipeline), где каждая статья обрабатывается индивидуально через все фазы от начала до конца. Ключевой принцип: **1 запуск = 1 статья**.
 
 ## Core Components
 
 ### 1. Core Module (`core/`)
-The heart of the application containing:
+Основные компоненты системы:
 
-- **main.py**: Command-line interface and orchestration
-- **config.py**: Configuration management
-- **database.py**: SQLite database operations
-- **models.py**: Pydantic models for data validation
+- **main.py**: Упрощенная точка входа (только --rss-discover, --single-pipeline, --stats)
+- **single_pipeline.py**: Главная логика единого пайплайна
+- **config.py**: Управление конфигурацией
+- **database.py**: Операции с SQLite
+- **models.py**: Pydantic модели для валидации
 
 ### 2. Services Module (`services/`)
 Specialized services for each processing phase:
 
 - **rss_discovery.py**: RSS feed scanning and article discovery
-- **content_parser.py**: Firecrawl Extract API integration
-- **media_processor.py**: Media download and processing
+- **content_parser.py**: Firecrawl Scrape API + DeepSeek AI content cleaning (6 min timeout, no retries)
+- **media_processor.py**: Media download and processing with Playwright
 - **firecrawl_client.py**: Centralized Firecrawl API client
-- **wordpress_publisher.py**: WordPress content preparation and translation
+- **wordpress_publisher.py**: WordPress content preparation and translation (DeepSeek)
+- **change_monitor.py**: Change tracking for articles using Firecrawl
+- **prompts_loader.py**: 🆕 External prompts loading system with variable substitution
 
 ### 3. Monitoring Module (`monitoring/`)
 Real-time system monitoring:
@@ -31,20 +36,21 @@ Real-time system monitoring:
 - **database.py**: Metrics storage
 - **collectors.py**: System and application metrics collection
 
-## Processing Pipeline
+## Single Pipeline Flow
 
 ```mermaid
-graph LR
-    A[RSS Feeds] --> B[Phase 1: RSS Discovery]
-    B --> C[Pending Articles]
-    C --> D[Phase 2: Content Parsing]
-    D --> E[Completed Articles]
-    E --> F[Phase 3: Media Processing]
-    F --> G[Articles with Media]
-    G --> H[Phase 4: WordPress Preparation]
-    H --> I[Translated Articles]
-    I --> J[Phase 5: WordPress Publishing]
-    J --> K[Published to WP]
+graph TD
+    A[RSS Discovery<br/>--rss-discover] --> B[База данных<br/>pending статьи]
+    B --> C[Single Pipeline<br/>--single-pipeline]
+    C --> D[Get Next Article<br/>FIFO queue]
+    D --> E[Phase 2: Parse Content<br/>Firecrawl API]
+    E --> F[Phase 3: Download Media<br/>Playwright]
+    F --> G[Phase 4: Translate<br/>DeepSeek]
+    G --> H[Phase 5: Publish<br/>WordPress]
+    H --> I[✅ Complete]
+    
+    style C fill:#f9f,stroke:#333,stroke-width:4px
+    style D fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ### [Phase 1: RSS Discovery](phases/phase1_rss_discovery.md)
@@ -55,9 +61,10 @@ graph LR
 
 ### [Phase 2: Content Parsing](phases/phase2_content_parsing.md)
 1. Fetch pending articles
-2. Call Firecrawl Extract API
-3. Extract full content, summary, tags
-4. Update to 'parsed' status
+2. Call Firecrawl Scrape API for raw markdown
+3. Clean content with DeepSeek AI using external prompt (`prompts/content_cleaner.txt`)
+4. Extract real image URLs and add [IMAGE_N] placeholders
+5. Update to 'parsed' status with cleaned content
 
 ### [Phase 3: Media Processing](phases/phase3_media_processing.md)
 1. Parse articles for media URLs
@@ -67,16 +74,17 @@ graph LR
 
 ### [Phase 4: WordPress Preparation](phases/phase4_wordpress_preparation.md)
 1. Load articles with status 'completed'
-2. Translate content using DeepSeek Chat API
-3. Generate SEO metadata (Yoast compatible)
-4. Categorize (max 1) and tag articles (max 5 tags)
-5. Save to wordpress_articles table
+2. Translate content using DeepSeek Reasoner with external prompt (`prompts/article_translator.txt`)
+3. Generate tags using DeepSeek Chat with external prompt (`prompts/tag_generator.txt`)
+4. Generate SEO metadata (Yoast compatible)
+5. Categorize (max 1) and tag articles (2-5 tags from 74 curated)
+6. Save to wordpress_articles table
 
 ### [Phase 5: WordPress Publishing](phases/phase5_wordpress_publishing.md)
 1. Create WordPress posts via REST API (draft status)
-2. Upload media with translated alt_text only (no caption/description)
+2. Upload media with alt_text translated using GPT-3.5 and external prompt (`prompts/image_metadata.txt`)
 3. Set featured images
-4. Insert remaining images into content
+4. Insert remaining images into content with [IMAGE_N] placeholder replacement
 5. Update publication status
 
 ## Database Schema
@@ -97,22 +105,26 @@ CREATE TABLE sources (
 ```
 
 ### Articles Table
+**⚠️ ОЧИЩЕНО (7 августа 2025)**: Удалены неиспользуемые поля Extract API
+
 ```sql
 CREATE TABLE articles (
-    id INTEGER PRIMARY KEY,
-    source_id INTEGER,
-    url TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    content TEXT,
-    published_date DATETIME,
-    content_status TEXT DEFAULT 'pending',  -- pending, parsed, completed, failed, published
-    -- Extract API fields
-    extract_success BOOLEAN,
-    extract_markdown TEXT,
-    summary TEXT,
-    tags TEXT,
-    categories TEXT,
-    media_count INTEGER DEFAULT 0
+    article_id TEXT PRIMARY KEY,          -- SHA256 хеш от URL
+    source_id TEXT NOT NULL,              -- FK к sources.source_id
+    url TEXT NOT NULL UNIQUE,             -- URL статьи
+    title TEXT,                           -- Заголовок статьи
+    content TEXT,                         -- Полный текст (очищенный DeepSeek)
+    published_date DATETIME,              -- Дата публикации
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    content_status TEXT DEFAULT 'pending', -- pending/parsed/failed/published
+    content_error TEXT,                   -- Сообщение об ошибке
+    parsed_at DATETIME,                   -- Время успешного парсинга
+    media_count INTEGER DEFAULT 0,        -- Количество медиафайлов
+    media_status TEXT DEFAULT 'pending'   -- pending/ready/processing
+    
+    -- УДАЛЕНО: Поля Extract API
+    -- tags TEXT, word_count INTEGER, reading_time_minutes INTEGER,
+    -- summary TEXT, categories TEXT, language TEXT
 );
 ```
 
@@ -159,6 +171,51 @@ CREATE TABLE wordpress_articles (
 );
 ```
 
+## Session Management and Parallel Processing
+
+### Session Management Architecture
+AI News Parser использует **SessionManager** для безопасной параллельной обработки:
+
+#### Key Components:
+- **Session UUID**: Уникальный идентификатор каждой сессии обработки
+- **Worker ID**: Составной ID из hostname, PID и части UUID
+- **Heartbeat System**: Обновление активности каждые 10 секунд
+- **Atomic Locking**: Гарантия обработки статьи только одним воркером
+
+#### Database Tables:
+```sql
+-- Сессии обработки
+CREATE TABLE pipeline_sessions (
+    session_uuid TEXT PRIMARY KEY,
+    worker_id TEXT NOT NULL,
+    status TEXT,  -- active, completed, abandoned
+    started_at DATETIME,
+    last_heartbeat DATETIME,
+    current_article_id TEXT,
+    total_articles INTEGER,
+    success_count INTEGER,
+    error_count INTEGER
+);
+
+-- Блокировки статей
+CREATE TABLE session_locks (
+    article_id TEXT PRIMARY KEY,
+    session_uuid TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    locked_at DATETIME,
+    heartbeat DATETIME,
+    released_at DATETIME,
+    status TEXT  -- locked, released, expired
+);
+```
+
+#### Critical Fixes (August 9, 2025):
+1. **Proper Lock Release**: `release_article()` теперь очищает все поля `processing_*`
+2. **No Recursion**: `get_next_article()` использует безопасный цикл вместо рекурсии
+3. **Single Article Per Session**: Автоматический release старых блокировок
+4. **Heartbeat All Locks**: Обновляет heartbeat для ВСЕХ блокировок сессии
+5. **Faster Cleanup**: Таймауты уменьшены с 30 до 10 минут
+
 ## Key Design Decisions
 
 ### 1. Five-Phase Architecture
@@ -187,9 +244,17 @@ CREATE TABLE wordpress_articles (
 
 ### Environment Variables
 ```bash
+# API Keys
 FIRECRAWL_API_KEY      # Firecrawl API authentication
-OPENAI_API_KEY         # DeepSeek API key for WordPress publishing
-WORDPRESS_LLM_MODEL    # DeepSeek model (deepseek-reasoner or deepseek-chat)
+OPENAI_API_KEY         # GPT-3.5 for media translation
+DEEPSEEK_API_KEY       # DeepSeek for article translation
+
+# WordPress
+WORDPRESS_API_URL      # WordPress REST API endpoint
+WORDPRESS_USERNAME     # WordPress username
+WORDPRESS_APP_PASSWORD # WordPress application password
+
+# System
 DATABASE_PATH          # SQLite database location
 LOG_LEVEL             # Logging verbosity
 MEDIA_BASE_PATH       # Media storage directory
@@ -320,16 +385,85 @@ System uses text logging instead of structured JSON logging, making log parsing 
 
 The monitoring API lacks authentication, allowing unrestricted access to system data and controls.
 
-## Updated Database Paths
+## Project Structure
+
+```
+ainews-clean/
+├── core/
+│   ├── main.py            # Entry point (simplified)
+│   ├── single_pipeline.py # Main pipeline logic
+│   ├── database.py        # DB operations
+│   ├── config.py          # Configuration
+│   └── models.py          # Pydantic models
+├── services/              # Phase services
+│   ├── rss_discovery.py
+│   ├── content_parser.py
+│   ├── media_processor.py
+│   ├── firecrawl_client.py
+│   ├── wordpress_publisher.py
+│   ├── change_monitor.py
+│   └── prompts_loader.py  # 🆕 External prompts loader
+├── prompts/               # 🆕 EXTERNAL PROMPTS SYSTEM
+│   ├── content_cleaner.txt    # DeepSeek content cleaning (Phase 2)
+│   ├── article_translator.txt # Article translation (Phase 4)
+│   ├── tag_generator.txt      # Tag generation (Phase 4)
+│   └── image_metadata.txt     # Image metadata translation (Phase 5)
+├── monitoring/            # Web dashboard
+│   ├── app.py
+│   ├── api.py
+│   ├── database.py
+│   └── collectors.py
+├── app_logging/          # Logging system
+├── agents/               # Agent contexts
+├── migrations/           # DB migrations
+├── plugins/              # WordPress plugins
+├── scripts/              # Utility scripts
+├── data/                 # Databases
+│   ├── ainews.db         # Main database
+│   └── monitoring.db     # Monitoring database
+├── logs/                 # Log files
+└── error_exports/        # Error exports
+```
+
+## Database Paths
 
 **Main Database**: `/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db`
 - Articles, sources, media files, WordPress content
 - Global configuration including `global_last_parsed`
+- New tables: related_links, tracked_articles
 
 **Monitoring Database**: `/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db`
 - System metrics, source health
-- Parse history, error logs (currently empty)
-- API metrics
+- Parse history, error logs  
+- API metrics, alerts, memory metrics
+- ~~extract_api_metrics, extract_api_errors~~ (Удалены 7 августа 2025)
+
+## 🆕 External Prompts System
+
+### Overview
+All LLM prompts have been extracted from the code to separate text files in the `prompts/` directory. This allows for easy editing and customization without modifying the codebase.
+
+### Prompt Files
+1. **`content_cleaner.txt`** - Used by DeepSeek Chat in Phase 2 for content cleaning
+2. **`article_translator.txt`** - Used by DeepSeek Reasoner in Phase 4 for translation
+3. **`tag_generator.txt`** - Used by DeepSeek Chat in Phase 4 for tag generation
+4. **`image_metadata.txt`** - Used by GPT-3.5 in Phase 5 for image metadata translation
+
+### Usage
+```python
+from services.prompts_loader import load_prompt
+
+# Load prompt with variable substitution
+prompt = load_prompt('content_cleaner', url=article_url, content=raw_content)
+```
+
+### Key Benefits
+- **Easy editing**: Modify prompts without code changes
+- **Version control**: Track prompt changes separately from code
+- **Dynamic variables**: Automatic substitution of `{variable}` placeholders
+- **Fallback**: Graceful handling of missing prompt files
+
+---
 
 ## Documentation
 
@@ -337,3 +471,5 @@ For detailed information, see:
 - [Database Schema](DATABASE_SCHEMA.md) - Complete database structure
 - [API Reference](API_REFERENCE.md) - All API endpoints
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues and solutions
+- [LLM Models](llm-models.md) - External prompts system and model usage
+- [Prompts README](../prompts/README.md) - Detailed prompts documentation

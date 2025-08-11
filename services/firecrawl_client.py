@@ -34,13 +34,13 @@ class FirecrawlClient:
     Handles authentication, requests, retries, and error handling
     """
     
-    def __init__(self, api_key: Optional[str] = None, timeout: int = 120):
+    def __init__(self, api_key: Optional[str] = None, timeout: int = 360):
         """
         Initialize Firecrawl client
         
         Args:
             api_key: Firecrawl API key (defaults to environment variable)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default 360 = 6 minutes)
         """
         self.logger = get_logger('services.firecrawl_client')
         
@@ -51,13 +51,16 @@ class FirecrawlClient:
             
         self.base_url = "https://api.firecrawl.dev/v1"
         self.extract_url = f"{self.base_url}/extract"
+        self.scrape_endpoint = f"{self.base_url}/scrape"
+        self.crawl_endpoint = f"{self.base_url}/crawl"
+        self.map_endpoint = f"{self.base_url}/map"
         self.timeout = timeout
         
         # Session management
         self.session: Optional[aiohttp.ClientSession] = None
         
         # Rate limiting and retry configuration
-        self.max_retries = Config.MAX_RETRIES
+        self.max_retries = 0  # БЕЗ ретраев чтобы не тратить токены дважды
         self.rate_limit_delay = 1.0  # seconds between requests
         self.last_request_time = 0
         
@@ -309,14 +312,30 @@ class FirecrawlClient:
                 self.stats['total_cost'] += 0.005  # Estimated cost per request
                 self.stats['total_processing_time'] += processing_time
                 
+                # Log critical operation
+                from app_logging import log_operation
+                log_operation('firecrawl_extract',
+                    url=url,
+                    duration_seconds=processing_time,
+                    cost_usd=0.005,
+                    success=True,
+                    content_length=len(extracted.get('content', ''))
+                )
+                
                 self.logger.debug(f"Successfully extracted content from {url[:60]}... in {processing_time:.1f}s")
                 return extracted
                 
-        except FirecrawlError:
+        except FirecrawlError as e:
             self.stats['failed_extracts'] += 1
+            # Log error
+            from app_logging import log_error
+            log_error('firecrawl_error', str(e), url=url, cost_usd=0.005)
             raise
         except Exception as e:
             self.stats['failed_extracts'] += 1
+            # Log error
+            from app_logging import log_error
+            log_error('firecrawl_error', str(e), url=url, cost_usd=0.005)
             raise FirecrawlError(f"Extraction failed: {str(e)}")
     
     async def extract_with_retry(
@@ -366,6 +385,378 @@ class FirecrawlClient:
                     self.logger.error(f"All {max_retries + 1} extraction attempts failed for {url}")
         
         raise last_error or FirecrawlError(f"Extraction failed after {max_retries + 1} attempts")
+    
+    async def scrape_with_retry(self, url: str, **kwargs) -> Dict[str, Any]:
+        """
+        Scrape URL with retry logic (for compatibility with ContentParser)
+        
+        Args:
+            url: URL to scrape
+            **kwargs: Additional scrape options
+            
+        Returns:
+            Scraped content with markdown and metadata
+        """
+        return await self.scrape_url(url, formats=['markdown', 'links', 'html'], **kwargs)
+    
+    async def scrape_url(
+        self,
+        url: str,
+        formats: List[str] = None,
+        tag: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Scrape URL using Firecrawl Scrape API with changeTracking support
+        
+        Args:
+            url: URL to scrape
+            formats: List of output formats (markdown, changeTracking, etc.)
+            tag: Tag for grouping in Firecrawl
+            **kwargs: Additional scrape options
+            
+        Returns:
+            Scraped content data
+            
+        Raises:
+            FirecrawlError: If scraping fails
+        """
+        start_time = time.time()
+        
+        try:
+            await self._ensure_session()
+            await self._rate_limit()
+            
+            # Prepare request payload
+            payload = {
+                'url': url
+            }
+            
+            # Add formats if provided
+            if formats:
+                payload['formats'] = formats
+            else:
+                payload['formats'] = ['markdown']  # Default format
+                
+            # Add tag if provided
+            if tag:
+                payload['tag'] = tag
+            
+            # Add any additional options
+            payload.update(kwargs)
+            
+            self.logger.debug(f"Sending Scrape API request for: {url[:80]}...")
+            
+            # Make Scrape API request
+            async with self.session.post(
+                self.scrape_endpoint,
+                headers={'Content-Type': 'application/json'},
+                json=payload
+            ) as response:
+                
+                self.stats['total_requests'] += 1
+                
+                if response.status == 200:
+                    result = await response.json()
+                    
+                    if result.get('success'):
+                        data = result.get('data', {})
+                        
+                        # Update statistics
+                        processing_time = time.time() - start_time
+                        self.stats['successful_extracts'] += 1
+                        self.stats['total_cost'] += 0.001  # Estimated cost for scrape
+                        self.stats['total_processing_time'] += processing_time
+                        
+                        self.logger.debug(f"Successfully scraped {url[:60]}... in {processing_time:.1f}s")
+                        return data
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        raise FirecrawlError(f"Scrape API error: {error_msg}")
+                        
+                else:
+                    error_text = await response.text()
+                    raise FirecrawlError(
+                        f"Scrape API error {response.status}: {error_text}",
+                        status_code=response.status
+                    )
+                
+        except FirecrawlError:
+            self.stats['failed_extracts'] += 1
+            raise
+        except Exception as e:
+            self.stats['failed_extracts'] += 1
+            raise FirecrawlError(f"Scraping failed: {str(e)}")
+    
+    async def crawl_website(
+        self,
+        url: str,
+        limit: int = 10,
+        max_depth: Optional[int] = None,
+        include_paths: Optional[List[str]] = None,
+        exclude_paths: Optional[List[str]] = None,
+        wait_for_completion: bool = True,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Crawl website using Firecrawl Crawl API to discover all pages
+        
+        Args:
+            url: Starting URL to crawl from
+            limit: Maximum number of pages to crawl (default 10)
+            max_depth: Maximum crawl depth from starting URL
+            include_paths: List of path patterns to include (e.g., ["/news/*", "/blog/*"])
+            exclude_paths: List of path patterns to exclude
+            **kwargs: Additional crawl parameters
+            
+        Returns:
+            Dict containing:
+                - urls: List of discovered URLs with their content
+                - total: Total pages found
+                - success: Boolean status
+                
+        Raises:
+            FirecrawlError: If crawl fails
+        """
+        await self._ensure_session()
+        await self._rate_limit()
+        
+        start_time = time.time()
+        
+        try:
+            # Build crawl payload
+            payload = {
+                'url': url,
+                'limit': limit
+            }
+            
+            if max_depth is not None:
+                payload['maxDepth'] = max_depth
+                
+            if include_paths:
+                payload['includePaths'] = include_paths
+                
+            if exclude_paths:
+                payload['excludePaths'] = exclude_paths
+            
+            # Add any additional options
+            payload.update(kwargs)
+            
+            self.logger.info(f"Starting crawl of {url} with limit={limit}")
+            
+            # Start crawl job
+            async with self.session.post(
+                self.crawl_endpoint,
+                headers={'Content-Type': 'application/json'},
+                json=payload
+            ) as response:
+                
+                self.stats['total_requests'] += 1
+                
+                if response.status == 200:
+                    result = await response.json()
+                    
+                    if result.get('success'):
+                        crawl_id = result.get('id')
+                        status_url = result.get('url')
+                        
+                        if not wait_for_completion:
+                            # Return immediately with job info
+                            return {
+                                'success': True,
+                                'crawl_id': crawl_id,
+                                'status_url': status_url,
+                                'status': 'started'
+                            }
+                        
+                        # Wait for crawl to complete
+                        self.logger.info(f"Crawl started, waiting for completion (ID: {crawl_id})")
+                        
+                        # Poll for status
+                        max_wait = 60  # Maximum 60 seconds
+                        poll_interval = 2
+                        elapsed = 0
+                        
+                        while elapsed < max_wait:
+                            await asyncio.sleep(poll_interval)
+                            elapsed += poll_interval
+                            
+                            # Check status
+                            async with self.session.get(
+                                status_url,
+                                headers={'Authorization': f'Bearer {self.api_key}'}
+                            ) as status_response:
+                                
+                                if status_response.status == 404:
+                                    # Job might be completed and cleaned up
+                                    self.logger.warning("Crawl job not found (404), might be completed")
+                                    break
+                                    
+                                if status_response.status != 200:
+                                    self.logger.warning(f"Status check failed: {status_response.status}")
+                                    continue
+                                
+                                status_data = await status_response.json()
+                                status = status_data.get('status')
+                                
+                                if status == 'completed':
+                                    # Crawl completed successfully
+                                    data = status_data.get('data', [])
+                                    total = status_data.get('total', len(data))
+                                    
+                                    # Update statistics
+                                    processing_time = time.time() - start_time
+                                    self.stats['successful_extracts'] += 1
+                                    estimated_cost = len(data) * 0.002
+                                    self.stats['total_cost'] += estimated_cost
+                                    self.stats['total_processing_time'] += processing_time
+                                    
+                                    self.logger.info(f"Crawl completed: found {len(data)} pages in {processing_time:.1f}s")
+                                    
+                                    # Log operation
+                                    from app_logging import log_operation
+                                    log_operation('firecrawl_crawl',
+                                        url=url,
+                                        pages_found=len(data),
+                                        duration_seconds=processing_time,
+                                        cost_usd=estimated_cost,
+                                        success=True
+                                    )
+                                    
+                                    return {
+                                        'success': True,
+                                        'urls': data,
+                                        'total': total,
+                                        'crawl_time': processing_time
+                                    }
+                                    
+                                elif status == 'failed':
+                                    error_msg = status_data.get('error', 'Crawl failed')
+                                    raise FirecrawlError(f"Crawl failed: {error_msg}")
+                                    
+                                else:
+                                    # Still processing
+                                    completed = status_data.get('completed', 0)
+                                    total = status_data.get('total', 0)
+                                    self.logger.debug(f"Crawl progress: {completed}/{total} pages")
+                        
+                        # Timeout reached
+                        raise FirecrawlError(f"Crawl timeout after {max_wait} seconds")
+                        
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        raise FirecrawlError(f"Crawl API error: {error_msg}")
+                        
+                elif response.status == 402:
+                    # Payment required - likely hit limits
+                    raise FirecrawlError("Crawl API limit reached (402 Payment Required)", status_code=402)
+                    
+                else:
+                    error_text = await response.text()
+                    raise FirecrawlError(
+                        f"Crawl API error {response.status}: {error_text}",
+                        status_code=response.status
+                    )
+                
+        except FirecrawlError as e:
+            self.stats['failed_extracts'] += 1
+            # Log error
+            from app_logging import log_error
+            log_error('firecrawl_crawl_error', str(e), url=url)
+            raise
+        except Exception as e:
+            self.stats['failed_extracts'] += 1
+            # Log error
+            from app_logging import log_error
+            log_error('firecrawl_crawl_error', str(e), url=url)
+            raise FirecrawlError(f"Crawl failed: {str(e)}")
+    
+    async def map_website(
+        self,
+        url: str,
+        search: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Map website using Firecrawl Map API to quickly get all URLs
+        
+        Args:
+            url: Website URL to map
+            search: Optional search query to filter URLs
+            **kwargs: Additional parameters
+            
+        Returns:
+            Dict containing:
+                - success: Boolean status
+                - links: List of discovered URLs
+                
+        Raises:
+            FirecrawlError: If mapping fails
+        """
+        await self._ensure_session()
+        await self._rate_limit()
+        
+        start_time = time.time()
+        
+        try:
+            # Build map payload
+            payload = {'url': url}
+            
+            if search:
+                payload['search'] = search
+            
+            # Add any additional options
+            payload.update(kwargs)
+            
+            self.logger.info(f"Mapping website: {url}")
+            
+            # Make Map API request
+            async with self.session.post(
+                self.map_endpoint,
+                headers={'Content-Type': 'application/json'},
+                json=payload
+            ) as response:
+                
+                self.stats['total_requests'] += 1
+                
+                if response.status == 200:
+                    result = await response.json()
+                    
+                    if result.get('success') or result.get('status') == 'success':
+                        # Extract links
+                        links = result.get('links', [])
+                        
+                        # Update statistics
+                        processing_time = time.time() - start_time
+                        self.stats['successful_extracts'] += 1
+                        estimated_cost = 0.001  # Map is usually cheaper
+                        self.stats['total_cost'] += estimated_cost
+                        self.stats['total_processing_time'] += processing_time
+                        
+                        self.logger.info(f"Map completed: found {len(links)} URLs in {processing_time:.1f}s")
+                        
+                        return {
+                            'success': True,
+                            'links': links,
+                            'map_time': processing_time
+                        }
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        raise FirecrawlError(f"Map API error: {error_msg}")
+                        
+                else:
+                    error_text = await response.text()
+                    raise FirecrawlError(
+                        f"Map API error {response.status}: {error_text}",
+                        status_code=response.status
+                    )
+                
+        except FirecrawlError:
+            self.stats['failed_extracts'] += 1
+            raise
+        except Exception as e:
+            self.stats['failed_extracts'] += 1
+            raise FirecrawlError(f"Mapping failed: {str(e)}")
     
     def get_statistics(self) -> Dict[str, Any]:
         """

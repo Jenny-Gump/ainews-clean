@@ -1,5 +1,5 @@
 // AI News Control Center - Complete JavaScript Integration
-// Day 6: Full Dashboard Implementation with Backend API Integration
+// Cleaned version - Control, Articles and Memory functionality only
 
 // =======================
 // CORE CONFIGURATION
@@ -15,7 +15,6 @@ let globalState = {
     reconnectAttempts: 0,
     maxReconnectAttempts: 5,
     isConnected: false,
-    logsPaused: false,
     refreshInterval: null,
     charts: {
         resourceChart: null,
@@ -26,9 +25,7 @@ let globalState = {
         control: {},
         articles: { data: [], pagination: {}, sources: [] },
         memory: { processes: [], totalMemory: 0 },
-        systemResources: { history: [] },
-        errors: { recent: [], stats: {} },
-        logs: []
+        systemResources: { history: [] }
     }
 };
 
@@ -115,22 +112,11 @@ function sendWebSocketMessage(message) {
 
 function handleWebSocketMessage(data) {
     switch (data.type) {
-        case 'metrics_update':
-            if (data.rss_metrics) {
-                updateRSSMetrics(data.rss_metrics);
-            }
-            break;
         case 'process_status_update':
             updateProcessStatus(data.status);
             break;
         case 'article_processed':
             incrementArticleCount();
-            break;
-        case 'error_occurred':
-            handleNewError(data.error);
-            break;
-        case 'log_entry':
-            handleLogEntry(data.log);
             break;
         case 'memory_alert':
             handleMemoryAlert(data.alert);
@@ -166,27 +152,6 @@ function handleWebSocketMessage(data) {
             break;
         default:
             console.log('Unknown WebSocket message:', data.type, data);
-    }
-}
-
-function updateRSSMetrics(rssMetrics) {
-    if (globalState.currentTab === 'rss' && rssMetrics.summary) {
-        // Update RSS summary if currently viewing RSS tab
-        const summary = rssMetrics.summary;
-        const totalFeedsEl = document.getElementById('total-rss-feeds');
-        const avgFetchTimeEl = document.getElementById('avg-fetch-time');
-        
-        if (totalFeedsEl) totalFeedsEl.textContent = summary.total_rss_feeds || 0;
-        if (avgFetchTimeEl) avgFetchTimeEl.textContent = Math.round(summary.avg_fetch_time_ms || 0);
-        
-        // Update status breakdown
-        if (summary.status_breakdown) {
-            const healthyEl = document.getElementById('healthy-rss-feeds');
-            const errorEl = document.getElementById('error-rss-feeds');
-            
-            if (healthyEl) healthyEl.textContent = summary.status_breakdown.healthy || 0;
-            if (errorEl) errorEl.textContent = summary.status_breakdown.error || 0;
-        }
     }
 }
 
@@ -259,15 +224,6 @@ function loadTabData(tabName) {
             break;
         case 'memory':
             loadMemoryData();
-            break;
-        case 'rss':
-            loadRSSData();
-            break;
-        case 'errors':
-            loadErrorsData();
-            break;
-        case 'logs':
-            loadLogsData();
             break;
     }
 }
@@ -778,7 +734,7 @@ function showMediaModal(mediaData) {
                             <div>Type: ${media.mime_type || media.type || 'Unknown'}</div>
                             ${media.file_size ? `<div>Size: ${formatFileSize(media.file_size)}</div>` : ''}
                             ${media.width && media.height ? `<div>Dimensions: ${media.width}×${media.height}px</div>` : ''}
-                            <div>Status: <span class="px-2 py-1 text-xs rounded-full ${media.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">${media.status}</span></div>
+                            <div>Status: <span class="px-2 py-1 text-xs rounded-full ${media.status === 'parsed' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">${media.status}</span></div>
                         </div>
                         <div class="mt-2">
                             <a href="${media.url}" target="_blank" class="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm">
@@ -1012,342 +968,6 @@ async function killAllAINewsProcesses() {
     } catch (error) {
         console.error('Error killing all processes:', error);
         showNotification(`Failed to kill processes: ${error.message}`, 'error');
-    }
-}
-
-// =======================
-// ERRORS TAB FUNCTIONS
-// =======================
-
-async function loadErrorsData() {
-    try {
-        // Get filter values
-        const errorType = document.getElementById('error-type-filter')?.value || '';
-        const errorSource = document.getElementById('error-source-filter')?.value || '';
-        const timeFilter = document.getElementById('error-time-filter')?.value || '24h';
-        
-        // Convert time filter to hours
-        const hoursMap = { '24h': 24, '7d': 168, '30d': 720 };
-        const hours = hoursMap[timeFilter] || 24;
-        
-        const response = await makeAPICall(`/error-breakdown?hours=${hours}`);
-        
-        globalState.currentData.errors = response;
-        updateErrorsOverview(response);
-        
-        // Filter errors based on UI filters
-        let filteredErrors = response.errors || [];
-        if (errorType) {
-            filteredErrors = filteredErrors.filter(e => e.level === errorType);
-        }
-        if (errorSource) {
-            filteredErrors = filteredErrors.filter(e => e.source_id === errorSource);
-        }
-        
-        renderErrorsList(filteredErrors);
-        updateErrorSourceFilter(response.errors || []);
-        
-    } catch (error) {
-        console.error('Error loading errors data:', error);
-        showNotification('Failed to load errors data', 'error');
-    }
-}
-
-function updateErrorsOverview(errorsData) {
-    const totalErrorsElement = document.getElementById('total-errors');
-    const errorSourcesCountElement = document.getElementById('error-sources-count');
-    const lastErrorTimeElement = document.getElementById('last-error-time');
-    
-    if (totalErrorsElement) {
-        totalErrorsElement.textContent = errorsData.total_count || 0;
-    }
-    
-    if (errorSourcesCountElement) {
-        const uniqueSources = new Set((errorsData.errors || []).map(e => e.source_id).filter(Boolean));
-        errorSourcesCountElement.textContent = uniqueSources.size;
-    }
-    
-    if (lastErrorTimeElement) {
-        const errors = errorsData.errors || [];
-        if (errors.length > 0) {
-            lastErrorTimeElement.textContent = formatDate(errors[0].timestamp);
-        } else {
-            lastErrorTimeElement.textContent = 'No recent errors';
-        }
-    }
-}
-
-function renderErrorsList(errors) {
-    const container = document.getElementById('errors-list');
-    
-    if (!errors || errors.length === 0) {
-        container.innerHTML = '<div class="text-center py-8 text-sm" style="color: oklch(var(--muted-foreground));">No recent errors found</div>';
-        document.getElementById('errors-pagination').style.display = 'none';
-        return;
-    }
-    
-    container.innerHTML = errors.map(error => `
-        <div class="card p-4 border-l-4 ${getErrorBorderClass(error.level)}">
-            <div class="flex justify-between items-start mb-2">
-                <div class="flex items-center space-x-2">
-                    <span class="text-sm font-medium ${getErrorTextClass(error.level)}">${error.level || 'ERROR'}</span>
-                    <span class="text-sm text-gray-500">${formatDate(error.timestamp)}</span>
-                    ${error.source_id ? `<span class="text-sm text-gray-500">• ${escapeHtml(error.source_id)}</span>` : ''}
-                </div>
-                <div class="flex space-x-1">
-                    <button onclick="copyErrorToClipboard('${error.id}')" class="btn-secondary px-2 py-1 text-xs" title="Copy error details">
-                        <i class="ri-file-copy-line"></i>
-                    </button>
-                    ${error.source_id ? `<button onclick="retryErrorSource('${error.source_id}')" class="btn-secondary px-2 py-1 text-xs" title="Retry source">
-                        <i class="ri-refresh-line"></i>
-                    </button>` : ''}
-                </div>
-            </div>
-            <div class="text-sm font-medium mb-1" style="color: oklch(var(--foreground));">
-                ${escapeHtml(error.message || 'No message')}
-            </div>
-            ${error.context ? `
-                <div class="text-xs text-gray-600 mb-2">
-                    <strong>Context:</strong> ${escapeHtml(error.context)}
-                </div>
-            ` : ''}
-            ${error.traceback ? `
-                <details class="text-xs text-gray-600 mt-2">
-                    <summary class="cursor-pointer hover:text-gray-800">Show full stack trace</summary>
-                    <pre class="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto">${escapeHtml(error.traceback)}</pre>
-                </details>
-            ` : ''}
-        </div>
-    `).join('');
-    
-    // Update pagination info
-    updateErrorsPagination(errors.length);
-}
-
-function getErrorBorderClass(level) {
-    switch (level) {
-        case 'CRITICAL': return 'border-red-600';
-        case 'ERROR': return 'border-red-500';
-        case 'WARNING': return 'border-yellow-500';
-        default: return 'border-gray-500';
-    }
-}
-
-function getErrorTextClass(level) {
-    switch (level) {
-        case 'CRITICAL': return 'text-red-700 font-bold';
-        case 'ERROR': return 'text-red-600';
-        case 'WARNING': return 'text-yellow-600';
-        default: return 'text-gray-600';
-    }
-}
-
-function updateErrorSourceFilter(errors) {
-    const select = document.getElementById('error-source-filter');
-    if (!select) return;
-    
-    const sources = [...new Set(errors.map(e => e.source_id).filter(Boolean))];
-    const currentValue = select.value;
-    
-    select.innerHTML = '<option value="">All Sources</option>' + 
-        sources.map(source => `<option value="${escapeHtml(source)}">${escapeHtml(source)}</option>`).join('');
-    
-    // Restore previous selection if still valid
-    if (sources.includes(currentValue)) {
-        select.value = currentValue;
-    }
-}
-
-function updateErrorsPagination(totalCount) {
-    const paginationDiv = document.getElementById('errors-pagination');
-    const infoDiv = document.getElementById('errors-info');
-    
-    if (totalCount > 0) {
-        paginationDiv.style.display = 'flex';
-        infoDiv.textContent = `Showing ${totalCount} errors`;
-    } else {
-        paginationDiv.style.display = 'none';
-    }
-}
-
-function refreshErrorFilters() {
-    loadErrorsData();
-    showNotification('Error filters refreshed', 'success', 1500);
-}
-
-function loadErrorsPage(direction) {
-    // Placeholder for pagination functionality
-    showNotification('Pagination not yet implemented', 'info');
-}
-
-async function retryErrorSource(sourceId) {
-    try {
-        showNotification(`Retrying source ${sourceId}...`, 'info');
-        const response = await makeAPICall(`/errors/${sourceId}/retry`, 'POST');
-        
-        if (response.success) {
-            showNotification(`Retry initiated for ${sourceId}`, 'success');
-        } else {
-            throw new Error(response.message || 'Retry failed');
-        }
-        
-    } catch (error) {
-        console.error('Error retrying source:', error);
-        showNotification(`Failed to retry source: ${error.message}`, 'error');
-    }
-}
-
-async function copyAllErrorsForDebug() {
-    try {
-        // Use the new errors export endpoint
-        const response = await makeAPICall('/errors/export?format=json&days=7');
-        
-        if (response.errors && response.errors.length > 0) {
-            const debugText = formatErrorsForDebug(response.errors);
-            await navigator.clipboard.writeText(debugText);
-            showNotification(`Copied ${response.errors.length} errors to clipboard for debugging`, 'success');
-        } else {
-            showNotification('No errors to copy', 'info');
-        }
-        
-    } catch (error) {
-        console.error('Error copying errors:', error);
-        showNotification('Failed to copy errors to clipboard', 'error');
-    }
-}
-
-async function exportErrorsAsText() {
-    try {
-        const response = await makeAPICall('/errors/export?format=text&days=7');
-        
-        if (response.export_text) {
-            // Create download
-            const blob = new Blob([response.export_text], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `ai-news-errors-${new Date().toISOString().split('T')[0]}.txt`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            
-            showNotification('Error report downloaded successfully', 'success');
-        } else {
-            showNotification('No errors to export', 'info');
-        }
-        
-    } catch (error) {
-        console.error('Error exporting errors:', error);
-        showNotification('Failed to export errors', 'error');
-    }
-}
-
-async function copyErrorToClipboard(errorId) {
-    try {
-        const error = globalState.currentData.errors.errors.find(e => e.id === errorId);
-        if (!error) {
-            showNotification('Error not found', 'error');
-            return;
-        }
-        
-        const debugText = formatSingleErrorForDebug(error);
-        await navigator.clipboard.writeText(debugText);
-        showNotification('Error details copied to clipboard', 'success');
-        
-    } catch (error) {
-        console.error('Error copying to clipboard:', error);
-        showNotification('Failed to copy to clipboard', 'error');
-    }
-}
-
-function formatErrorsForDebug(errors) {
-    return `AI News Parser - Debug Report
-Generated: ${new Date().toISOString()}
-Total Errors: ${errors.length}
-
-${'='.repeat(50)}
-
-${errors.map(error => formatSingleErrorForDebug(error)).join('\n\n' + '-'.repeat(30) + '\n\n')}`;
-}
-
-function formatSingleErrorForDebug(error) {
-    return `[${error.level || 'ERROR'}] ${formatDate(error.timestamp)}
-Source: ${error.source_id || 'Unknown'}
-Message: ${error.message || 'No message'}
-${error.traceback ? `\nTraceback:\n${error.traceback}` : ''}`;
-}
-
-// =======================
-// LOGS TAB FUNCTIONS
-// =======================
-
-async function loadLogsData() {
-    // For now, just display a simple log stream
-    // In production, this would connect to a real log streaming endpoint
-    if (!globalState.logsPaused) {
-        displayLogMessage('System initialized', 'INFO');
-        displayLogMessage('Loading logs data...', 'DEBUG');
-    }
-}
-
-function handleLogEntry(logEntry) {
-    if (!globalState.logsPaused && globalState.currentTab === 'logs') {
-        displayLogMessage(logEntry.message, logEntry.level, logEntry.timestamp);
-    }
-}
-
-function displayLogMessage(message, level = 'INFO', timestamp = null) {
-    const logStream = document.getElementById('log-stream');
-    if (!logStream) return;
-    
-    const time = timestamp ? new Date(timestamp) : new Date();
-    const timeStr = time.toLocaleTimeString();
-    
-    const levelClass = {
-        'DEBUG': 'text-gray-400',
-        'INFO': 'text-blue-400',
-        'WARNING': 'text-yellow-400',
-        'ERROR': 'text-red-400',
-        'CRITICAL': 'text-red-600 font-bold'
-    }[level] || 'text-gray-300';
-    
-    const logEntry = document.createElement('div');
-    logEntry.className = 'mb-1';
-    logEntry.innerHTML = `<span class="text-gray-500">${timeStr}</span> <span class="${levelClass}">[${level}]</span> <span class="text-gray-300">${escapeHtml(message)}</span>`;
-    
-    logStream.appendChild(logEntry);
-    
-    // Keep only last 100 log entries
-    while (logStream.children.length > 100) {
-        logStream.removeChild(logStream.firstChild);
-    }
-    
-    // Auto-scroll to bottom
-    logStream.scrollTop = logStream.scrollHeight;
-}
-
-function clearLogs() {
-    const logStream = document.getElementById('log-stream');
-    if (logStream) {
-        logStream.innerHTML = '<div class="text-center py-8" style="color: oklch(var(--muted-foreground));">Logs cleared</div>';
-    }
-}
-
-function toggleLogPause() {
-    globalState.logsPaused = !globalState.logsPaused;
-    const btn = document.getElementById('log-pause-btn');
-    const icon = btn.querySelector('i');
-    const text = btn.querySelector('span');
-    
-    if (globalState.logsPaused) {
-        icon.className = 'ri-play-line';
-        text.textContent = 'Resume';
-        showNotification('Log streaming paused', 'info');
-    } else {
-        icon.className = 'ri-pause-line';
-        text.textContent = 'Pause';
-        showNotification('Log streaming resumed', 'info');
     }
 }
 
@@ -1623,433 +1243,48 @@ function handleSystemResourcesUpdate(resources) {
     }
 }
 
-// =======================
-// LAST PARSED MANAGEMENT
-// =======================
-
-function getLastParsedAge(lastParsed) {
-    if (!lastParsed) {
-        return { text: 'Never', class: 'bg-gray-100 text-gray-800' };
-    }
-    
-    const now = new Date();
-    const parsed = new Date(lastParsed);
-    const diffHours = (now - parsed) / (1000 * 60 * 60);
-    
-    if (diffHours < 24) {
-        return { text: `${Math.round(diffHours)}h ago`, class: 'bg-green-100 text-green-800' };
-    } else if (diffHours < 168) { // 7 days
-        return { text: `${Math.round(diffHours / 24)}d ago`, class: 'bg-yellow-100 text-yellow-800' };
-    } else {
-        return { text: `${Math.round(diffHours / 168)}w ago`, class: 'bg-red-100 text-red-800' };
-    }
-}
-
-async function setAllLastParsed(timeRange) {
-    const confirmMessage = `Set all sources' last parsed time to ${timeRange} ago?`;
-    if (!confirm(confirmMessage)) return;
-    
-    try {
-        const now = new Date();
-        let targetDate;
-        
-        switch (timeRange) {
-            case '24h':
-                targetDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                break;
-            case '7d':
-                targetDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                break;
-            case '30d':
-                targetDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-                break;
-            default:
-                throw new Error('Invalid time range');
-        }
-        
-        // Get all sources first
-        const sourcesResponse = await makeAPICall('/sources/last-parsed');
-        const updates = sourcesResponse.sources.map(source => ({
-            source_id: source.source_id,
-            last_parsed: targetDate.toISOString()
-        }));
-        
-        // Bulk update
-        const response = await makeAPICall('/sources/last-parsed/bulk', 'POST', updates);
-        
-        if (response.success) {
-            showNotification(`Updated ${response.updated_count} sources to ${timeRange} ago`, 'success');
-            // Call the function from HTML inline script
-            if (typeof refreshLastParsed === 'function') {
-                refreshLastParsed();
-            }
-        } else {
-            throw new Error(response.message || 'Bulk update failed');
-        }
-        
-    } catch (error) {
-        console.error('Error in bulk update:', error);
-        showNotification(`Failed to update sources: ${error.message}`, 'error');
-    }
-}
-
-async function resetAllLastParsed() {
-    if (!confirm('Reset ALL sources to fetch from the beginning? This will cause a full re-crawl.')) return;
-    
-    try {
-        const sourcesResponse = await makeAPICall('/sources/last-parsed');
-        const updates = sourcesResponse.sources.map(source => ({
-            source_id: source.source_id,
-            last_parsed: '2020-01-01T00:00:00Z'
-        }));
-        
-        const response = await makeAPICall('/sources/last-parsed/bulk', 'POST', updates);
-        
-        if (response.success) {
-            showNotification(`Reset ${response.updated_count} sources`, 'success');
-            if (typeof refreshLastParsed === 'function') {
-                refreshLastParsed();
-            }
-        } else {
-            throw new Error(response.message || 'Bulk reset failed');
-        }
-        
-    } catch (error) {
-        console.error('Error in bulk reset:', error);
-        showNotification(`Failed to reset sources: ${error.message}`, 'error');
-    }
-}
-
-function showBulkUpdateModal() {
-    const modalHtml = `
-        <div id="bulk-update-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="card max-w-lg w-full mx-4">
-                <div class="p-6">
-                    <h3 class="text-lg font-semibold mb-4" style="color: oklch(var(--foreground));">Bulk Update Last Parsed</h3>
-                    
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Update Mode</label>
-                            <select id="bulk-mode" class="w-full px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                <option value="relative">Relative to now</option>
-                                <option value="absolute">Specific date/time</option>
-                            </select>
-                        </div>
-                        
-                        <div id="relative-options">
-                            <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Time Range</label>
-                            <select id="time-range" class="w-full px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                <option value="1h">1 hour ago</option>
-                                <option value="6h">6 hours ago</option>
-                                <option value="24h">24 hours ago</option>
-                                <option value="7d">7 days ago</option>
-                                <option value="30d">30 days ago</option>
-                            </select>
-                        </div>
-                        
-                        <div id="absolute-options" style="display: none;">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Date</label>
-                                    <input type="date" id="bulk-date" class="w-full px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Time</label>
-                                    <input type="time" id="bulk-time" class="w-full px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="flex justify-end space-x-3 mt-6">
-                        <button onclick="closeBulkUpdateModal()" class="btn-secondary px-4 py-2 text-sm">Cancel</button>
-                        <button onclick="executeBulkUpdate()" class="btn-primary px-4 py-2 text-sm">Update All</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    
-    // Setup mode toggle
-    document.getElementById('bulk-mode').addEventListener('change', function() {
-        const relativeOptions = document.getElementById('relative-options');
-        const absoluteOptions = document.getElementById('absolute-options');
-        
-        if (this.value === 'absolute') {
-            relativeOptions.style.display = 'none';
-            absoluteOptions.style.display = 'block';
-            // Set default to current date/time
-            const now = new Date();
-            document.getElementById('bulk-date').value = now.toISOString().split('T')[0];
-            document.getElementById('bulk-time').value = now.toTimeString().slice(0, 5);
-        } else {
-            relativeOptions.style.display = 'block';
-            absoluteOptions.style.display = 'none';
-        }
-    });
-}
-
-function closeBulkUpdateModal() {
-    const modal = document.getElementById('bulk-update-modal');
-    if (modal) modal.remove();
-}
-
-function closeDateTimeModal() {
-    const modal = document.getElementById('datetime-modal');
-    if (modal) modal.remove();
-}
-
-async function executeBulkUpdate() {
-    try {
-        const mode = document.getElementById('bulk-mode').value;
-        let targetDate;
-        
-        if (mode === 'relative') {
-            const timeRange = document.getElementById('time-range').value;
-            const now = new Date();
-            
-            const timeMap = {
-                '1h': 60 * 60 * 1000,
-                '6h': 6 * 60 * 60 * 1000,
-                '24h': 24 * 60 * 60 * 1000,
-                '7d': 7 * 24 * 60 * 60 * 1000,
-                '30d': 30 * 24 * 60 * 60 * 1000
-            };
-            
-            targetDate = new Date(now.getTime() - timeMap[timeRange]);
-        } else {
-            const date = document.getElementById('bulk-date').value;
-            const time = document.getElementById('bulk-time').value;
-            targetDate = new Date(`${date}T${time}`);
-        }
-        
-        // Get all sources
-        const sourcesResponse = await makeAPICall('/sources/last-parsed');
-        const updates = sourcesResponse.sources.map(source => ({
-            source_id: source.source_id,
-            last_parsed: targetDate.toISOString()
-        }));
-        
-        // Execute bulk update
-        const response = await makeAPICall('/sources/last-parsed/bulk', 'POST', updates);
-        
-        if (response.success) {
-            showNotification(`Updated ${response.updated_count} sources`, 'success');
-            if (typeof refreshLastParsed === 'function') {
-                refreshLastParsed();
-            }
-            closeBulkUpdateModal();
-        } else {
-            throw new Error(response.message || 'Bulk update failed');
-        }
-        
-    } catch (error) {
-        console.error('Error executing bulk update:', error);
-        showNotification(`Failed to update sources: ${error.message}`, 'error');
-    }
+function handleMemoryAlert(alert) {
+    showNotification(`Memory Alert: ${alert.message}`, 'warning');
 }
 
 // =======================
 // UTILITY FUNCTIONS
-// ======================="
+// =======================
 
-async function makeAPICall(endpoint, method = 'GET', data = null, timeout = 30000) {
-    const url = `${API_BASE_URL}${endpoint}`;
-    
-    const options = {
-        method: method,
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-    };
-    
-    if (data && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(data);
-    }
-    
-    // Add timeout handling
-    const controller = new AbortController();
-    options.signal = controller.signal;
-    
-    const timeoutId = setTimeout(() => {
-        controller.abort();
-    }, timeout);
-    
+async function makeAPICall(endpoint, method = 'GET', data = null) {
     try {
-        const response = await fetch(url, options);
-        clearTimeout(timeoutId);
+        const config = {
+            method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        if (data) {
+            config.body = JSON.stringify(data);
+        }
+        
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
         
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`API call failed: ${response.status} ${response.statusText} - ${errorText}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         return await response.json();
     } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-            throw new Error('Request timed out');
-        }
+        console.error('API call failed:', error);
         throw error;
     }
 }
 
-function showNotification(message, type = 'success', duration = 3000) {
-    const container = document.getElementById('notification-container');
-    if (!container) return;
-    
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    
-    const icon = {
-        'success': 'ri-check-line',
-        'error': 'ri-error-warning-line',
-        'warning': 'ri-alert-line',
-        'info': 'ri-information-line'
-    }[type] || 'ri-information-line';
-    
-    notification.innerHTML = `
-        <div class="flex items-center space-x-3">
-            <i class="${icon} text-lg"></i>
-            <span class="font-medium">${escapeHtml(message)}</span>
-            <button onclick="this.parentElement.parentElement.remove()" class="ml-auto">
-                <i class="ri-close-line"></i>
-            </button>
-        </div>
-    `;
-    
-    container.appendChild(notification);
-    
-    // Auto remove after duration
-    setTimeout(() => {
-        if (notification.parentElement) {
-            notification.remove();
-        }
-    }, duration);
-}
-
-function updateConnectionStatus(isConnected = null) {
-    if (isConnected !== null) {
-        globalState.isConnected = isConnected;
+function updateElement(id, content) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = content;
     }
-    
-    const indicator = document.getElementById('connection-indicator');
-    const status = document.getElementById('connection-status');
-    const lastUpdate = document.getElementById('last-update');
-    
-    if (globalState.isConnected) {
-        indicator.className = 'w-2 h-2 rounded-full status-connected';
-        status.className = 'text-sm font-medium status-connected';
-        status.textContent = 'Connected';
-        lastUpdate.textContent = new Date().toLocaleTimeString();
-    } else {
-        indicator.className = 'w-2 h-2 rounded-full status-error';
-        status.className = 'text-sm font-medium status-error';
-        status.textContent = 'Disconnected';
-    }
-}
-
-function refreshDashboard() {
-    showNotification('Refreshing dashboard...', 'info', 1500);
-    loadTabData(globalState.currentTab);
-    updateConnectionStatus();
-}
-
-function setupEventListeners() {
-    // Search functionality with debounce
-    const articleSearch = document.getElementById('article-search');
-    if (articleSearch) {
-        articleSearch.addEventListener('input', debounce(() => {
-            if (globalState.currentTab === 'articles') {
-                loadArticles();
-            }
-        }, 500));
-    }
-    
-    // Filter dropdowns
-    const sourceFilter = document.getElementById('source-filter');
-    if (sourceFilter) {
-        sourceFilter.addEventListener('change', () => {
-            if (globalState.currentTab === 'articles') {
-                loadArticles();
-            }
-        });
-    }
-    
-    const dateFilter = document.getElementById('date-filter');
-    if (dateFilter) {
-        dateFilter.addEventListener('change', () => {
-            if (globalState.currentTab === 'articles') {
-                loadArticles();
-            }
-        });
-    }
-    
-    // Log search
-    const logSearch = document.getElementById('log-search');
-    if (logSearch) {
-        logSearch.addEventListener('input', debounce(() => {
-            // Implement log search functionality
-            console.log('Log search:', logSearch.value);
-        }, 300));
-    }
-    
-    // Error filters
-    const errorTypeFilter = document.getElementById('error-type-filter');
-    if (errorTypeFilter) {
-        errorTypeFilter.addEventListener('change', () => {
-            if (globalState.currentTab === 'errors') {
-                loadErrorsData();
-            }
-        });
-    }
-    
-    const errorSourceFilter = document.getElementById('error-source-filter');
-    if (errorSourceFilter) {
-        errorSourceFilter.addEventListener('change', () => {
-            if (globalState.currentTab === 'errors') {
-                loadErrorsData();
-            }
-        });
-    }
-    
-    const errorTimeFilter = document.getElementById('error-time-filter');
-    if (errorTimeFilter) {
-        errorTimeFilter.addEventListener('change', () => {
-            if (globalState.currentTab === 'errors') {
-                loadErrorsData();
-            }
-        });
-    }
-}
-
-function startRefreshCycle() {
-    // Refresh current tab data every 30 seconds
-    globalState.refreshInterval = setInterval(() => {
-        if (globalState.isConnected) {
-            loadTabData(globalState.currentTab);
-        }
-    }, 30000);
-}
-
-// Utility functions
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
 }
 
 function escapeHtml(text) {
-    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -2057,62 +1292,38 @@ function escapeHtml(text) {
 
 function formatDate(dateString) {
     if (!dateString) return 'Unknown';
-    const date = new Date(dateString);
-    return date.toLocaleString();
-}
-
-function formatBytes(bytes) {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function updateElement(id, value) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.textContent = value;
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    } catch {
+        return 'Invalid date';
     }
 }
 
-function formatDateTime(dateString) {
-    if (!dateString) return 'Never';
-    const date = new Date(dateString);
-    return date.toLocaleString();
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
 }
 
 function getStatusClass(status) {
-    const statusClasses = {
-        'running': 'bg-green-100 text-green-800',
-        'stopped': 'bg-red-100 text-red-800',
-        'paused': 'bg-yellow-100 text-yellow-800',
-        'parsed': 'bg-blue-100 text-blue-800',
-        'error': 'bg-red-100 text-red-800',
-        'pending': 'bg-gray-100 text-gray-800',
-        'idle': 'bg-gray-100 text-gray-800',
-        'unknown': 'bg-gray-100 text-gray-800'
-    };
-    return statusClasses[status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
+    switch (status) {
+        case 'running': case 'active': case 'healthy': case 'success': case 'parsed':
+            return 'bg-green-100 text-green-800';
+        case 'paused': case 'pending': case 'processing':
+            return 'bg-yellow-100 text-yellow-800';
+        case 'stopped': case 'inactive': case 'error': case 'failed':
+            return 'bg-red-100 text-red-800';
+        default:
+            return 'bg-gray-100 text-gray-800';
+    }
 }
 
-function updateButtonState(buttonId, isLoading) {
+function updateButtonState(buttonId, disabled) {
     const button = document.getElementById(buttonId);
-    if (!button) return;
-    
-    if (isLoading) {
-        button.disabled = true;
-        button.classList.add('opacity-50');
-        const spinner = '<i class="ri-loader-4-line animate-spin mr-2"></i>';
-        const originalContent = button.innerHTML;
-        button.innerHTML = spinner + 'Processing...';
-        button.dataset.originalContent = originalContent;
-    } else {
-        button.disabled = false;
-        button.classList.remove('opacity-50');
-        if (button.dataset.originalContent) {
-            button.innerHTML = button.dataset.originalContent;
-        }
+    if (button) {
+        button.disabled = disabled;
     }
 }
 
@@ -2124,286 +1335,272 @@ function incrementArticleCount() {
     }
 }
 
-// Loading state management
-function setLoadingState(elementId, isLoading, loadingText = 'Loading...') {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    
-    if (isLoading) {
-        element.dataset.originalContent = element.innerHTML;
-        element.innerHTML = `
-            <div class="flex items-center justify-center py-4">
-                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3"></div>
-                <span class="text-sm" style="color: oklch(var(--muted-foreground));">${loadingText}</span>
-            </div>
-        `;
-        element.classList.add('opacity-75');
-    } else {
-        if (element.dataset.originalContent) {
-            element.innerHTML = element.dataset.originalContent;
-            delete element.dataset.originalContent;
+function updateConnectionStatus(connected) {
+    // Find any connection status indicators and update them
+    const indicators = document.querySelectorAll('.connection-status');
+    indicators.forEach(indicator => {
+        if (connected) {
+            indicator.classList.remove('text-red-500');
+            indicator.classList.add('text-green-500');
+            indicator.textContent = 'Connected';
+        } else {
+            indicator.classList.remove('text-green-500');
+            indicator.classList.add('text-red-500');
+            indicator.textContent = 'Disconnected';
         }
-        element.classList.remove('opacity-75');
+    });
+}
+
+function showNotification(message, type = 'info', duration = 3000) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${getNotificationClass(type)}`;
+    notification.textContent = message;
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Auto remove after duration
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
+    }, duration);
+    
+    console.log(`[${type.toUpperCase()}] ${message}`);
+}
+
+function getNotificationClass(type) {
+    switch (type) {
+        case 'success':
+            return 'bg-green-100 text-green-800 border border-green-200';
+        case 'error':
+            return 'bg-red-100 text-red-800 border border-red-200';
+        case 'warning':
+            return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+        case 'info':
+        default:
+            return 'bg-blue-100 text-blue-800 border border-blue-200';
     }
 }
 
-// Error boundary wrapper for tab loading
-function withErrorBoundary(tabName, loadFunction) {
-    return async function() {
-        const tabContent = document.getElementById(`${tabName}-tab`);
-        if (!tabContent) return;
+function setupEventListeners() {
+    // Set up global event listeners here
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        // Ctrl+R or F5 - refresh current tab
+        if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+            e.preventDefault();
+            loadTabData(globalState.currentTab);
+        }
         
-        try {
-            setLoadingState(`${tabName}-tab`, true, `Loading ${tabName} data...`);
-            await loadFunction();
-        } catch (error) {
-            console.error(`Error loading ${tabName} tab:`, error);
-            
-            // Show error state in tab
-            const errorContent = `
-                <div class="card p-6 border-red-500 bg-red-50">
-                    <div class="flex items-center space-x-3">
-                        <i class="ri-error-warning-line text-2xl text-red-500"></i>
+        // Ctrl+1-3 for tab switching
+        if (e.ctrlKey && ['1', '2', '3'].includes(e.key)) {
+            e.preventDefault();
+            const tabs = ['control', 'articles', 'memory'];
+            const index = parseInt(e.key) - 1;
+            if (tabs[index]) {
+                switchTab(tabs[index]);
+            }
+        }
+    });
+}
+
+function startRefreshCycle() {
+    // Auto-refresh every 30 seconds
+    if (globalState.refreshInterval) {
+        clearInterval(globalState.refreshInterval);
+    }
+    
+    globalState.refreshInterval = setInterval(() => {
+        if (globalState.currentTab === 'control') {
+            loadControlData();
+        } else if (globalState.currentTab === 'memory') {
+            loadMemoryData();
+        }
+        // Articles tab doesn't auto-refresh to avoid interrupting user actions
+    }, 30000);
+}
+
+// =======================
+// BULK UPDATE FUNCTIONS
+// =======================
+
+function showBulkUpdateModal() {
+    const modalHTML = `
+        <div id="bulk-update-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="card max-w-2xl w-full mx-4">
+                <div class="p-6 border-b" style="border-color: oklch(var(--border));">
+                    <h2 class="text-xl font-bold" style="color: oklch(var(--foreground));">Bulk Update Source Last Parsed</h2>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
                         <div>
-                            <h3 class="font-semibold text-red-700">Failed to load ${tabName} data</h3>
-                            <p class="text-sm text-red-600 mt-1">${error.message}</p>
-                            <button onclick="loadTabData('${tabName}')" class="btn-secondary px-3 py-2 text-sm mt-3">
-                                <i class="ri-refresh-line"></i> Retry
-                            </button>
+                            <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Update Action</label>
+                            <select id="bulk-update-action" class="input w-full">
+                                <option value="set_all">Set all sources to specific date/time</option>
+                                <option value="reset_all">Reset all sources (clear last_parsed)</option>
+                            </select>
+                        </div>
+                        <div id="datetime-selector">
+                            <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Date & Time</label>
+                            <input type="datetime-local" id="bulk-datetime" class="input w-full">
+                        </div>
+                        <div class="bg-yellow-50 border border-yellow-200 rounded p-3">
+                            <p class="text-sm text-yellow-800">
+                                <strong>Warning:</strong> This will update ALL RSS sources. Use with caution.
+                            </p>
                         </div>
                     </div>
                 </div>
-            `;
-            
-            tabContent.innerHTML = errorContent;
-            showNotification(`Failed to load ${tabName} data: ${error.message}`, 'error');
-        } finally {
-            setLoadingState(`${tabName}-tab`, false);
+                <div class="p-6 border-t flex justify-end space-x-3" style="border-color: oklch(var(--border));">
+                    <button onclick="closeBulkUpdateModal()" class="btn-secondary">Cancel</button>
+                    <button onclick="executeBulkUpdate()" class="btn-destructive">Execute Update</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Set default datetime to 2 hours ago
+    const defaultTime = new Date();
+    defaultTime.setHours(defaultTime.getHours() - 2);
+    document.getElementById('bulk-datetime').value = defaultTime.toISOString().slice(0, 16);
+    
+    // Handle action change
+    document.getElementById('bulk-update-action').addEventListener('change', function() {
+        const dateTimeSelector = document.getElementById('datetime-selector');
+        if (this.value === 'reset_all') {
+            dateTimeSelector.style.display = 'none';
+        } else {
+            dateTimeSelector.style.display = 'block';
         }
-    };
+    });
 }
 
-// Enhanced error handler with retry capability
-function handleAPIError(error, context, retryFunction = null) {
-    console.error(`API Error in ${context}:`, error);
-    
-    let message = error.message || 'Unknown error occurred';
-    let type = 'error';
-    
-    if (message.includes('timeout')) {
-        message = 'Request timed out. Please check your connection.';
-        type = 'warning';
-    } else if (message.includes('404')) {
-        message = 'Endpoint not found. Please refresh the page.';
-    } else if (message.includes('500')) {
-        message = 'Server error. Please try again later.';
-    }
-    
-    showNotification(message, type, 5000);
-    
-    // Update connection status if appropriate
-    if (message.includes('timeout') || message.includes('500')) {
-        updateConnectionStatus(false);
+function closeBulkUpdateModal() {
+    const modal = document.getElementById('bulk-update-modal');
+    if (modal) {
+        modal.remove();
     }
 }
 
-function handleNewError(error) {
-    if (globalState.currentTab === 'errors') {
-        // Refresh errors tab if we're viewing it
-        setTimeout(loadErrorsData, 1000);
-    }
-    
-    // Show notification for critical errors
-    if (error.level === 'CRITICAL') {
-        showNotification(`Critical error: ${error.message}`, 'error', 5000);
-    }
-    
-    // Update error count in tab if visible
-    updateErrorTabCount();
+function closeDateTimeModal() {
+    // Legacy function - keeping for compatibility
+    closeBulkUpdateModal();
 }
 
-function updateErrorTabCount() {
-    // This could be enhanced to show error count in the tab title
-    const errorsData = globalState.currentData.errors;
-    if (errorsData && errorsData.total_count > 0) {
-        const tabButton = document.getElementById('errors-tab-button');
-        const span = tabButton.querySelector('span');
-        if (span) {
-            span.textContent = `Errors (${errorsData.total_count})`;
-        }
-    }
-}
-
-function handleMemoryAlert(alert) {
-    showNotification(`Memory Alert: ${alert.message}`, 'warning', 5000);
-    
-    if (globalState.currentTab === 'memory') {
-        setTimeout(loadMemoryData, 1000);
-    }
-}
-
-// =======================
-// GLOBAL EXPORTS FOR HTML
-// =======================
-
-// =======================
-// RSS DATA LOADING
-// =======================
-
-async function loadRSSData() {
+async function executeBulkUpdate() {
     try {
-        console.log('Loading RSS data...');
+        const action = document.getElementById('bulk-update-action').value;
+        const datetime = document.getElementById('bulk-datetime').value;
         
-        // Load RSS feeds status
-        const response = await fetch('/api/rss/feeds');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let confirmMessage = 'Are you sure you want to ';
+        if (action === 'reset_all') {
+            confirmMessage += 'reset ALL sources (clear their last_parsed timestamps)?';
+        } else {
+            confirmMessage += `set ALL sources to ${datetime}?`;
+        }
+        confirmMessage += '\n\nThis action affects all RSS sources and cannot be undone.';
         
-        const data = await response.json();
-        
-        // Update summary cards
-        updateElement('total-rss-feeds', data.total_feeds || 0);
-        updateElement('healthy-rss-feeds', data.healthy_feeds || 0);
-        updateElement('error-rss-feeds', data.error_feeds || 0);
-        
-        // Get additional status data
-        const statusResponse = await fetch('/api/rss/status');
-        if (statusResponse.ok) {
-            const statusData = await statusResponse.json();
-            updateElement('avg-fetch-time', Math.round(statusData.avg_fetch_time_ms || 0));
+        if (!confirm(confirmMessage)) {
+            return;
         }
         
-        // Update RSS feeds table
-        updateRSSTable(data.feeds || []);
+        showNotification('Executing bulk update...', 'info');
         
-        // Store in global state
-        globalState.currentData.rss = data;
+        const requestData = { action };
+        if (action === 'set_all' && datetime) {
+            requestData.datetime = datetime;
+        }
         
-        console.log('RSS data loaded successfully');
+        const response = await makeAPICall('/rss/bulk-update-last-parsed', 'POST', requestData);
+        
+        if (response.success) {
+            showNotification(`Successfully updated ${response.updated_count} sources`, 'success');
+            closeBulkUpdateModal();
+            // Refresh RSS data if we're on that tab
+            if (globalState.currentTab === 'rss') {
+                loadRSSData();
+            }
+        } else {
+            throw new Error(response.message || 'Bulk update failed');
+        }
         
     } catch (error) {
-        console.error('Error loading RSS data:', error);
-        showNotification('Failed to load RSS data', 'error');
-        
-        // Show error state
-        updateElement('total-rss-feeds', 'Error');
-        updateElement('healthy-rss-feeds', 'Error');
-        updateElement('error-rss-feeds', 'Error');
-        updateElement('avg-fetch-time', 'Error');
+        console.error('Error executing bulk update:', error);
+        showNotification(`Failed to execute bulk update: ${error.message}`, 'error');
     }
 }
 
-function updateRSSTable(feeds) {
-    const tbody = document.getElementById('rss-feeds-table');
-    if (!tbody) return;
-    
-    if (feeds.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="7" class="text-center py-8" style="color: oklch(var(--muted-foreground));">
-                    No RSS feeds found
-                </td>
-            </tr>
-        `;
-        return;
-    }
-    
-    tbody.innerHTML = feeds.map(feed => `
-        <tr class="border-b hover:bg-gray-50" style="border-color: oklch(var(--border));">
-            <td class="py-3 px-4">
-                <div class="font-medium">${escapeHtml(feed.source_name)}</div>
-                <div class="text-sm" style="color: oklch(var(--muted-foreground));">${escapeHtml(feed.source_id)}</div>
-            </td>
-            <td class="py-3 px-4">
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRSSStatusClass(feed.status)}">
-                    ${escapeHtml(feed.status)}
-                </span>
-            </td>
-            <td class="py-3 px-4">
-                <div class="text-sm">${feed.articles_in_feed || 0} total</div>
-                <div class="text-xs" style="color: oklch(var(--muted-foreground));">${feed.new_articles_found || 0} new</div>
-            </td>
-            <td class="py-3 px-4">
-                <div class="text-sm">${Math.round(feed.fetch_time_ms || 0)}ms</div>
-            </td>
-            <td class="py-3 px-4">
-                <div class="text-sm">${Math.round(feed.pipeline_efficiency || 0)}%</div>
-                <div class="text-xs" style="color: oklch(var(--muted-foreground));">${feed.scrape_successes || 0}/${feed.scrape_attempts || 0}</div>
-            </td>
-            <td class="py-3 px-4">
-                <div class="text-sm">${formatDateTime(feed.last_check)}</div>
-            </td>
-            <td class="py-3 px-4">
-                <button onclick="checkRSSFeed('${escapeHtml(feed.source_id)}')" 
-                        class="btn-secondary px-2 py-1 text-xs hover:bg-gray-200 transition-colors">
-                    <i class="ri-refresh-line"></i> Check
-                </button>
-            </td>
-        </tr>
-    `).join('');
-}
-
-function getRSSStatusClass(status) {
-    switch (status) {
-        case 'healthy': return 'bg-green-100 text-green-800';
-        case 'error': return 'bg-red-100 text-red-800';
-        case 'timeout': return 'bg-yellow-100 text-yellow-800';
-        case 'stale': return 'bg-orange-100 text-orange-800';
-        default: return 'bg-gray-100 text-gray-800';
-    }
-}
-
-async function refreshRSSFeeds() {
-    showNotification('Refreshing RSS feeds...', 'success');
-    await loadRSSData();
-}
-
-async function checkRSSFeed(sourceId) {
+async function setAllLastParsed() {
     try {
-        showNotification(`Checking RSS feed for ${sourceId}...`, 'success');
+        // Set all sources to 2 hours ago
+        const twoHoursAgo = new Date();
+        twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
         
-        const response = await fetch(`/api/rss/feed/${sourceId}/check`, {
-            method: 'POST'
+        if (!confirm(`Set ALL sources' last_parsed to ${twoHoursAgo.toLocaleString()}?\n\nThis affects all RSS sources.`)) {
+            return;
+        }
+        
+        const response = await makeAPICall('/rss/bulk-update-last-parsed', 'POST', {
+            action: 'set_all',
+            datetime: twoHoursAgo.toISOString()
         });
         
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        showNotification(`RSS feed check initiated for ${sourceId}`, 'success');
-        
-        // Refresh data after a short delay
-        setTimeout(() => refreshRSSFeeds(), 2000);
+        if (response.success) {
+            showNotification(`Set ${response.updated_count} sources to 2 hours ago`, 'success');
+            if (globalState.currentTab === 'rss') {
+                loadRSSData();
+            }
+        } else {
+            throw new Error(response.message || 'Failed to set last parsed');
+        }
         
     } catch (error) {
-        console.error('Error checking RSS feed:', error);
-        showNotification('Failed to check RSS feed', 'error');
+        console.error('Error setting all last parsed:', error);
+        showNotification(`Failed to set last parsed: ${error.message}`, 'error');
+    }
+}
+
+async function resetAllLastParsed() {
+    try {
+        if (!confirm('Reset ALL sources (clear their last_parsed timestamps)?\n\nThis will cause all sources to be parsed from the beginning.')) {
+            return;
+        }
+        
+        const response = await makeAPICall('/rss/bulk-update-last-parsed', 'POST', {
+            action: 'reset_all'
+        });
+        
+        if (response.success) {
+            showNotification(`Reset ${response.updated_count} sources`, 'success');
+            if (globalState.currentTab === 'rss') {
+                loadRSSData();
+            }
+        } else {
+            throw new Error(response.message || 'Failed to reset last parsed');
+        }
+        
+    } catch (error) {
+        console.error('Error resetting all last parsed:', error);
+        showNotification(`Failed to reset last parsed: ${error.message}`, 'error');
     }
 }
 
 // Make functions available globally for HTML onclick handlers
-// Don't override functions from index.html
-// window.switchTab = switchTab;  // Already defined in index.html
 window.startParser = startParser;
 window.stopParser = stopParser;
 window.pauseParser = pauseParser;
 window.restartParser = restartParser;
 window.killAllAINewsProcesses = killAllAINewsProcesses;
-window.copyErrorsForDebug = copyErrorsForDebug;
-window.clearLogs = clearLogs;
-window.toggleLogPause = toggleLogPause;
-// window.refreshDashboard = refreshDashboard;  // Already defined in index.html
 window.viewArticle = viewArticle;
 window.closeArticleModal = closeArticleModal;
 window.killProcess = killProcess;
-window.copyErrorToClipboard = copyErrorToClipboard;
-window.loadRSSData = loadRSSData;
-window.refreshRSSFeeds = refreshRSSFeeds;
-window.checkRSSFeed = checkRSSFeed;
 window.changeResourceTimeRange = changeResourceTimeRange;
 window.refreshProcessChart = refreshProcessChart;
-window.copyAllErrorsForDebug = copyAllErrorsForDebug;
-window.exportErrorsAsText = exportErrorsAsText;
-window.refreshErrorFilters = refreshErrorFilters;
-window.loadErrorsPage = loadErrorsPage;
-window.retryErrorSource = retryErrorSource;
 window.setAllLastParsed = setAllLastParsed;
 window.resetAllLastParsed = resetAllLastParsed;
 window.showBulkUpdateModal = showBulkUpdateModal;

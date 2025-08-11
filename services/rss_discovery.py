@@ -42,8 +42,7 @@ class ExtractRSSDiscovery:
         self.default_days_back = 7  # По умолчанию проверяем 7 дней назад
         
         self.logger.info(
-            f"ExtractRSSDiscovery initialized",
-            rss_sources_count=len(self.rss_sources)
+            f"ExtractRSSDiscovery initialized with {len(self.rss_sources)} RSS sources"
         )
     
     def _load_rss_sources(self) -> List[Dict]:
@@ -151,18 +150,14 @@ class ExtractRSSDiscovery:
                 last_parsed = datetime.now(timezone.utc) - timedelta(days=self.default_days_back)
             
             self.logger.debug(
-                f"Fetching RSS for {source_id}",
-                rss_url=rss_url,
-                last_parsed=last_parsed.isoformat()
+                f"Fetching RSS for {source_id}: {rss_url}, last_parsed: {last_parsed.isoformat()}"
             )
             
             # Загружаем RSS
             async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
                     self.logger.warning(
-                        f"RSS fetch failed for {source_id}",
-                        status=response.status,
-                        url=rss_url
+                        f"RSS fetch failed for {source_id}: status {response.status}, url: {rss_url}"
                     )
                     return source_id, []
                 
@@ -173,8 +168,7 @@ class ExtractRSSDiscovery:
             
             if feed.bozo:
                 self.logger.warning(
-                    f"RSS parse warning for {source_id}",
-                    error=str(feed.bozo_exception)
+                    f"RSS parse warning for {source_id}: {str(feed.bozo_exception)}"
                 )
             
             # Обрабатываем записи (максимум 5 на источник)
@@ -202,13 +196,16 @@ class ExtractRSSDiscovery:
                 
                 # Резолвим Google redirects и проверяем на заблокированные домены
                 final_url = self._resolve_google_redirect(url)
+                if final_url != url:
+                    self.logger.info(f"Extracted real URL: {final_url} from redirect: {url[:100]}...")
+                
                 if self._is_blocked_domain(final_url):
                     self.logger.debug(f"Skipped blocked domain: {final_url[:100]}")
                     continue
                 
-                # Проверяем, нет ли уже в БД
-                if self.db.article_exists(url):
-                    self.logger.debug(f"Article already exists: {url[:100]}")
+                # Проверяем, нет ли уже в БД (используем final_url для проверки)
+                if self.db.article_exists(final_url):
+                    self.logger.debug(f"Article already exists: {final_url[:100]}")
                     continue
                 
                 # Извлекаем данные
@@ -220,9 +217,9 @@ class ExtractRSSDiscovery:
                     continue
                 
                 articles.append({
-                    'article_id': self._generate_article_id(url),
+                    'article_id': self._generate_article_id(final_url),
                     'source_id': source_id,
-                    'url': url,
+                    'url': final_url,  # Use extracted real URL instead of redirect
                     'title': title,
                     'description': description,
                     'published_date': published,
@@ -232,19 +229,15 @@ class ExtractRSSDiscovery:
                 articles_found += 1
             
             self.logger.info(
-                f"RSS discovery for {source_id}",
-                total_entries=len(feed.entries),
-                new_articles=len(articles),
-                last_parsed=last_parsed.isoformat()
+                f"RSS discovery for {source_id}: {len(feed.entries)} entries processed, "
+                f"{len(articles)} new articles found, last_parsed: {last_parsed.isoformat()}"
             )
             
         except asyncio.TimeoutError:
             self.logger.error(f"RSS timeout for {source_id}: {rss_url}")
         except Exception as e:
             self.logger.error(
-                f"RSS error for {source_id}",
-                error=str(e),
-                url=rss_url
+                f"RSS error for {source_id}: {str(e)} (URL: {rss_url})"
             )
         
         return source_id, articles
@@ -260,6 +253,9 @@ class ExtractRSSDiscovery:
         Returns:
             Статистика обнаружения
         """
+        # Import log_operation for dashboard updates
+        from app_logging import log_operation
+        
         # Фильтруем источники
         if source_ids:
             sources_to_process = [
@@ -273,9 +269,19 @@ class ExtractRSSDiscovery:
             self.logger.warning("No RSS sources to process")
             return {'sources_processed': 0, 'articles_discovered': 0, 'articles_saved': 0}
         
+        # Log RSS start for dashboard visibility
+        log_operation(
+            f"🔍 RSS Discovery начат для {len(sources_to_process)} источников",
+            phase="rss_discovery",
+            operation_type="rss_start",
+            details={
+                'total_sources': len(sources_to_process),
+                'source_ids': [s['id'] for s in sources_to_process]
+            }
+        )
+        
         self.logger.info(
-            "Starting RSS discovery",
-            sources_count=len(sources_to_process)
+            f"Starting RSS discovery for {len(sources_to_process)} sources"
         )
         
         # Start RSS discovery phase tracking
@@ -322,9 +328,22 @@ class ExtractRSSDiscovery:
                     stats['sources_processed'] += 1
                     stats['articles_discovered'] += len(articles)
                     
+                    # Log progress for dashboard updates
+                    source_name = next((s['name'] for s in self.rss_sources if s['id'] == source_id), source_id)
+                    log_operation(
+                        f"📡 {source_name}: найдено {len(articles)} статей",
+                        phase="rss_discovery", 
+                        operation_type="source_processed",
+                        details={
+                            'source_id': source_id,
+                            'source_name': source_name,
+                            'articles_found': len(articles),
+                            'progress': f"{stats['sources_processed']}/{len(sources_to_process)}"
+                        }
+                    )
+                    
                     # Update progress tracker
                     if progress_tracker:
-                        source_name = next((s['name'] for s in self.rss_sources if s['id'] == source_id), source_id)
                         progress_tracker.update_source(source_id, source_name)
                         progress_tracker.update_phase_progress('rss_discovery', {
                             'processed_feeds': 1,
@@ -348,9 +367,7 @@ class ExtractRSSDiscovery:
                                 self.logger.debug(f"Article not saved (duplicate?): {article['url'][:100]}")
                         except Exception as e:
                             self.logger.error(
-                                f"Error saving article",
-                                error=str(e),
-                                url=article['url'][:100]
+                                f"Error saving article: {str(e)} (URL: {article['url'][:100]})"
                             )
                             stats['errors'] += 1
                     
@@ -379,6 +396,20 @@ class ExtractRSSDiscovery:
             f"{stats['errors']} ошибок"
         )
         
+        # Log completion for dashboard visibility
+        log_operation(
+            f"✅ RSS Discovery завершен: {stats['new_articles']} новых статей",
+            phase="rss_discovery",
+            operation_type="rss_completed",
+            details={
+                'sources_processed': stats['sources_processed'],
+                'articles_discovered': stats['articles_discovered'],
+                'articles_saved': stats['articles_saved'],
+                'new_articles': stats['new_articles'],
+                'errors': stats['errors']
+            }
+        )
+        
         # Финальное сообщение о завершении фазы
         self.logger.info("===== RSS DISCOVERY PHASE COMPLETED =====")
         
@@ -393,7 +424,7 @@ class ExtractRSSDiscovery:
         Обнаружение с fallback на Playwright для проблемных RSS
         (Будет реализовано позже при необходимости)
         """
-        # TODO: Implement Playwright fallback for problematic RSS feeds
+        # Playwright fallback not implemented - RSS parsing handles errors gracefully
         return await self.discover_from_sources(source_ids)
 
 

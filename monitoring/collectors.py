@@ -11,7 +11,7 @@ import queue
 
 from .models import PerformanceMetrics, SourceMetrics
 from .database import MonitoringDatabase
-from .log_processor import LogDataExtractor
+# from .log_processor import LogDataExtractor  # REMOVED - module not found
 
 
 class MetricsCollector:
@@ -401,7 +401,7 @@ class SystemMetricsCollector(MetricsCollector):
 class SourceHealthCollector(MetricsCollector):
     """Simplified source metrics collector - complex health scoring removed"""
     
-    def __init__(self, monitoring_db: MonitoringDatabase, check_interval_seconds: int = 300, log_processor: Optional[LogDataExtractor] = None):
+    def __init__(self, monitoring_db: MonitoringDatabase, check_interval_seconds: int = 300, log_processor: Optional[Any] = None):
         super().__init__(monitoring_db)
         self.check_interval_seconds = check_interval_seconds
         # FIXED: Add limits to prevent unlimited cache growth
@@ -524,21 +524,17 @@ class SourceHealthCollector(MetricsCollector):
             print(f"Error clearing SourceHealthCollector caches: {e}")
     
     def consume_log_metrics(self):
-        """Consume metrics from log processor"""
+        """Consume metrics from log processor - DISABLED: log_processor removed"""
         if not self.log_processor:
             return
         
-        try:
-            # Get metrics from log processor
-            log_summary = self.log_processor.consume_log_metrics()
-            
-            # Log processor already updates database directly
-            # This method can be used for additional processing or alerting
-            if log_summary.get('processed_entries', 0) > 0:
-                print(f"Consumed {log_summary['processed_entries']} log entries")
-        
-        except Exception as e:
-            print(f"Error consuming log metrics: {e}")
+        # DISABLED: log_processor module removed
+        # Original functionality commented out
+        # try:
+        #     log_summary = self.log_processor.consume_log_metrics()
+        #     if log_summary.get('processed_entries', 0) > 0:
+        #         print(f"Consumed {log_summary['processed_entries']} log entries")
+        return  # Method disabled
     
     # REMOVED: Complex 7-component health scoring - using simple status-based calculation
     def calculate_simple_status(self, source_metrics: Dict[str, Any]) -> str:

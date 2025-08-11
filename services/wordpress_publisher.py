@@ -14,10 +14,13 @@ from requests.auth import HTTPBasicAuth
 import base64
 import mimetypes
 import os
+from openai import OpenAI
+from httpx import ReadError, ConnectError, TimeoutException
 
 from core.database import Database
 from core.config import Config
 from app_logging import get_logger
+from services.prompts_loader import load_prompt
 
 logger = get_logger('services.wordpress_publisher')
 
@@ -27,8 +30,8 @@ class WordPressPublisher:
     
     # Allowed categories (exact list from WordPress)
     ALLOWED_CATEGORIES = [
-        "LLM", "Машинное обучение", "Техника", "Digital", 
-        "Люди", "Финансы", "Наука", "Обучение", "Другие индустрии",
+        "LLM", "Машинное обучение", "Железо", "Digital", 
+        "Люди", "Финансы", "Наука", "Обучение",
         "Безопасность", "Творчество", "Здоровье", "Космос", "Война", "Политика",
         "Гаджеты", "Игры", "Разработка"
     ]
@@ -37,9 +40,13 @@ class WordPressPublisher:
         self.config = config
         self.db = db
         # DeepSeek API uses OpenAI-compatible client but different base URL
-        self.client = openai.OpenAI(
+        self.deepseek_client = openai.OpenAI(
             api_key=config.openai_api_key,
             base_url="https://api.deepseek.com"
+        )
+        # GPT-4o fallback client
+        self.openai_client = openai.OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY")
         )
         
     def process_articles_batch(self, limit: int = 10) -> Dict[str, Any]:
@@ -149,23 +156,139 @@ class WordPressPublisher:
             prompt = self._build_llm_prompt(article)
             logger.debug(f"Prompt length: {len(prompt)} chars")
             
-            # Call DeepSeek API with timeout
-            logger.info(f"Calling DeepSeek API with model: {self.config.wordpress_llm_model}")
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.config.wordpress_llm_model,
-                    messages=[
-                        {"role": "system", "content": self._get_system_prompt()},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    timeout=180  # 3 minutes timeout
-                )
-            except Exception as timeout_error:
-                if "timeout" in str(timeout_error).lower():
-                    logger.error(f"API timeout after 3 minutes for article {article.get('article_id')}")
-                    raise TimeoutError("DeepSeek API timeout after 3 minutes")
-                raise
+            response = None
+            
+            # Try DeepSeek first with retry
+            for attempt in range(3):
+                try:
+                    # Log BEFORE sending request (no icon - just info)
+                    from app_logging import log_operation
+                    log_operation(f'DeepSeek ({attempt + 1}/3) начинает перевод статьи...',
+                        model=self.config.wordpress_llm_model,
+                        processing_stage='article_translation',
+                        article_id=article.get('article_id'),
+                        phase='wordpress_prep',
+                        retry_attempt=attempt + 1,
+                        max_attempts=3
+                    )
+                    
+                    logger.info(f"Calling DeepSeek API (attempt {attempt + 1}/3) with model: {self.config.wordpress_llm_model}")
+                    response = self.deepseek_client.chat.completions.create(
+                        model=self.config.wordpress_llm_model,
+                        messages=[
+                            {"role": "system", "content": self._get_system_prompt()},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7,
+                        timeout=90  # 90 seconds timeout for DeepSeek
+                    )
+                    logger.info("DeepSeek API responded successfully")
+                    
+                    # Log LLM operation with detailed tracking
+                    from app_logging import log_operation
+                    tokens_input = len(prompt) // 4
+                    tokens_output = len(response.choices[0].message.content) // 4
+                    cost_usd = (tokens_input * 0.14 + tokens_output * 0.28) / 1_000_000
+                    log_operation(f'✅ DeepSeek ({attempt + 1}/3) перевод завершен ({tokens_input + tokens_output} токенов)',
+                        model=self.config.wordpress_llm_model,
+                        tokens_input=tokens_input,
+                        tokens_output=tokens_output,
+                        tokens_approx=tokens_input + tokens_output,
+                        cost_usd=cost_usd,
+                        success=True,
+                        retry_attempt=attempt + 1,
+                        max_attempts=3,
+                        processing_stage='article_translation',
+                        article_id=article.get('article_id'),
+                        phase='wordpress_prep'
+                    )
+                    break  # Success, exit retry loop
+                except (Exception, TimeoutError, ReadError, ConnectError, TimeoutException) as api_error:
+                    error_type = type(api_error).__name__
+                    logger.warning(f"DeepSeek API attempt {attempt + 1} failed ({error_type}): {str(api_error)}")
+                    
+                    # Log failed LLM attempt
+                    from app_logging import log_error, log_operation
+                    fallback_reason = 'timeout' if isinstance(api_error, (TimeoutError, TimeoutException)) else \
+                                    'network_error' if isinstance(api_error, (ReadError, ConnectError)) else \
+                                    'api_error'
+                    
+                    log_operation(f'❌ DeepSeek ({attempt + 1}/3) ошибка: {fallback_reason}',
+                        model=self.config.wordpress_llm_model,
+                        success=False,
+                        retry_attempt=attempt + 1,
+                        max_attempts=3,
+                        fallback_reason=fallback_reason,
+                        processing_stage='article_translation',
+                        article_id=article.get('article_id'),
+                        phase='wordpress_prep',
+                        error_message=str(api_error)[:200]
+                    )
+                    
+                    # Special handling for network/timeout errors
+                    if "receive_response_body" in str(api_error) or isinstance(api_error, (ReadError, TimeoutError, TimeoutException)):
+                        logger.warning("DeepSeek API hanging on response body - forcing fallback")
+                    
+                    # Wait 5 seconds between attempts (except after the last one)
+                    if attempt < 2:  # Not the last attempt
+                        import asyncio
+                        import time
+                        logger.info("Waiting 5 seconds before next attempt...")
+                        time.sleep(5)
+                    
+                    if attempt == 2:  # Last attempt failed
+                        # Fallback to GPT-4o
+                        try:
+                            logger.info("Falling back to GPT-4o...")
+                            response = self.openai_client.chat.completions.create(
+                                model="gpt-4o",
+                                messages=[
+                                    {"role": "system", "content": self._get_system_prompt()},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                temperature=0.7,
+                                timeout=60  # 60 seconds timeout for GPT-4o
+                            )
+                            logger.info("GPT-4o responded successfully")
+                            
+                            # Log LLM fallback operation with detailed tracking
+                            from app_logging import log_operation
+                            tokens_input = len(prompt) // 4
+                            tokens_output = len(response.choices[0].message.content) // 4
+                            cost_usd = (tokens_input * 5.0 + tokens_output * 15.0) / 1_000_000
+                            log_operation(f'⚠️ Fallback на GPT-4o после 3 неудач DeepSeek ({tokens_input + tokens_output} токенов)',
+                                model='gpt-4o',
+                                tokens_input=tokens_input,
+                                tokens_output=tokens_output,
+                                tokens_approx=tokens_input + tokens_output,
+                                cost_usd=cost_usd,
+                                success=True,
+                                fallback=True,
+                                fallback_reason='deepseek_failed',
+                                processing_stage='article_translation',
+                                article_id=article.get('article_id'),
+                                phase='wordpress_prep'
+                            )
+                        except Exception as openai_error:
+                            logger.error(f"GPT-4o fallback also failed: {str(openai_error)}")
+                            
+                            # Log failed fallback attempt
+                            from app_logging import log_operation
+                            log_operation('❌ GPT-4o fallback также не удался',
+                                model='gpt-4o',
+                                success=False,
+                                fallback=True,
+                                fallback_reason='gpt4o_failed',
+                                processing_stage='article_translation',
+                                article_id=article.get('article_id'),
+                                phase='wordpress_prep',
+                                error_message=str(openai_error)[:200]
+                            )
+                            return None
+            
+            if not response:
+                logger.error("No response from any LLM")
+                return None
             
             # Parse the response
             content = response.choices[0].message.content
@@ -205,93 +328,207 @@ class WordPressPublisher:
             logger.error(f"LLM processing error: {str(e)}")
             return None
     
+    async def _generate_tags_with_llm(self, translated_article: Dict[str, Any]) -> List[str]:
+        """Generate tags for translated article using existing tags list"""
+        try:
+            # Load existing clean tags
+            import json
+            import asyncio
+            with open('data/wordpress_tags_clean.json', 'r', encoding='utf-8') as f:
+                existing_tags = json.load(f)
+            
+            # Extract just tag names for the prompt
+            tag_names = [tag['name'] for tag in existing_tags]
+            
+            # Загружаем промпт из файла
+            prompt = load_prompt('tag_generator',
+                title=translated_article['title'],
+                content=translated_article['content'][:2000],
+                available_tags=json.dumps(tag_names, ensure_ascii=False)
+            )
+
+            response = None
+            
+            # Try DeepSeek first with retries
+            for attempt in range(3):
+                try:
+                    # Log BEFORE sending request (no icon - just info)
+                    from app_logging import log_operation
+                    log_operation(f'DeepSeek ({attempt + 1}/3) начинает генерацию тегов...',
+                        model='deepseek-chat',
+                        processing_stage='tag_generation',
+                        article_id=translated_article.get('article_id'),
+                        phase='wordpress_prep',
+                        retry_attempt=attempt + 1,
+                        max_attempts=3
+                    )
+                    
+                    logger.info(f"Calling DeepSeek API for tag generation (attempt {attempt + 1}/3)...")
+                    
+                    response = self.deepseek_client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.3,  # Low temperature for consistent tag selection
+                        timeout=30
+                    )
+                    logger.info("DeepSeek API responded successfully for tags")
+                    
+                    # Log successful DeepSeek tag generation
+                    from app_logging import log_operation
+                    tokens_input = len(prompt) // 4
+                    tokens_output = len(response.choices[0].message.content) // 4
+                    cost_usd = (tokens_input * 0.14 + tokens_output * 0.28) / 1_000_000
+                    log_operation(f'✅ DeepSeek ({attempt + 1}/3) теги сгенерированы ({tokens_input + tokens_output} токенов)',
+                        model='deepseek-chat',
+                        tokens_input=tokens_input,
+                        tokens_output=tokens_output,
+                        tokens_approx=tokens_input + tokens_output,
+                        cost_usd=cost_usd,
+                        success=True,
+                        retry_attempt=attempt + 1,
+                        max_attempts=3,
+                        processing_stage='tag_generation',
+                        article_id=translated_article.get('article_id'),
+                        phase='wordpress_prep'
+                    )
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    logger.warning(f"DeepSeek tag generation attempt {attempt + 1} failed: {e}")
+                    
+                    # Log failed attempt
+                    from app_logging import log_operation
+                    fallback_reason = 'timeout' if 'timeout' in str(e).lower() else 'api_error'
+                    log_operation(f'❌ DeepSeek ({attempt + 1}/3) ошибка генерации тегов: {fallback_reason}',
+                        model='deepseek-chat',
+                        success=False,
+                        retry_attempt=attempt + 1,
+                        max_attempts=3,
+                        fallback_reason=fallback_reason,
+                        processing_stage='tag_generation',
+                        article_id=translated_article.get('article_id'),
+                        phase='wordpress_prep',
+                        error_message=str(e)[:200]
+                    )
+                    
+                    if attempt < 2:  # Not the last attempt
+                        wait_time = 3 + attempt * 2  # 3, 5 seconds
+                        logger.info(f"Waiting {wait_time} seconds before retry...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        # All attempts failed, try fallback to GPT-3.5
+                        logger.info("All DeepSeek attempts failed, falling back to GPT-3.5-turbo...")
+                        try:
+                            response = self.openai_client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[
+                                    {"role": "user", "content": prompt}
+                                ],
+                                temperature=0.3,
+                                timeout=30
+                            )
+                            logger.info("GPT-3.5-turbo responded successfully for tags")
+                            
+                            # Log GPT-3.5 fallback success
+                            tokens_input = len(prompt) // 4
+                            tokens_output = len(response.choices[0].message.content) // 4
+                            cost_usd = (tokens_input * 0.5 + tokens_output * 1.5) / 1_000_000
+                            log_operation(f'⚠️ Fallback на GPT-3.5 для тегов после 3 неудач DeepSeek ({tokens_input + tokens_output} токенов)',
+                                model='gpt-3.5-turbo',
+                                tokens_input=tokens_input,
+                                tokens_output=tokens_output,
+                                tokens_approx=tokens_input + tokens_output,
+                                cost_usd=cost_usd,
+                                success=True,
+                                fallback=True,
+                                fallback_reason='deepseek_failed',
+                                processing_stage='tag_generation',
+                                article_id=translated_article.get('article_id'),
+                                phase='wordpress_prep'
+                            )
+                        except Exception as gpt_error:
+                            logger.error(f"GPT-3.5-turbo also failed: {gpt_error}")
+                            
+                            # Log GPT-3.5 fallback failure
+                            log_operation('❌ GPT-3.5 fallback для тегов также не удался',
+                                model='gpt-3.5-turbo',
+                                success=False,
+                                fallback=True,
+                                fallback_reason='gpt35_failed',
+                                processing_stage='tag_generation',
+                                article_id=translated_article.get('article_id'),
+                                phase='wordpress_prep',
+                                error_message=str(gpt_error)[:200]
+                            )
+                            return []
+            
+            if not response:
+                logger.error("No response from any LLM for tag generation")
+                return []
+            
+            # Note: LLM operation already logged above
+            
+            # Parse response
+            content = response.choices[0].message.content.strip()
+            logger.debug(f"Tags response: {content}")
+            
+            # Try to extract JSON array
+            try:
+                if content.startswith('['):
+                    tags = json.loads(content)
+                else:
+                    # Try to find JSON array in the response
+                    import re
+                    json_match = re.search(r'\[.*?\]', content, re.DOTALL)
+                    if json_match:
+                        tags = json.loads(json_match.group())
+                    else:
+                        logger.warning(f"No JSON array found in tags response: {content}")
+                        return []
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse tags JSON: {e}. Response: {content}")
+                return []
+            
+            # Validate and limit tags
+            if not isinstance(tags, list):
+                logger.warning(f"Tags is not a list: {tags}")
+                return []
+            
+            # Ensure tags are strings and limit to 5
+            tags = [str(tag) for tag in tags[:5]]
+            
+            logger.info(f"Generated tags: {tags}")
+            return tags
+            
+        except Exception as e:
+            logger.error(f"Failed to generate tags: {e}")
+            return []
+    
     def _build_llm_prompt(self, article: Dict[str, Any]) -> str:
         """Build prompt for LLM processing"""
         
-        prompt = f"""
-Переведи и адаптируй эту статью об искусственном интеллекте для русскоязычной аудитории.
-
-ИСХОДНАЯ СТАТЬЯ:
-Заголовок: {article['title']}
-URL: {article['url']}
-Дата: {article['published_date']}
-Исходные теги: {article.get('tags', '')}
-Исходные категории: {article.get('categories', '')}
-
-КОНТЕНТ:
-{article['content'][:8000] if article['content'] else article.get('summary', '')}
-
-ТРЕБОВАНИЯ К КАТЕГОРИЯМ:
-⚠️ ВАЖНО: Выбери СТРОГО ОДНУ категорию из этого списка (не больше!):
-{', '.join(self.ALLOWED_CATEGORIES)}
-
-Правила выбора категории:
-- LLM: если главная тема - языковые модели (GPT, Claude, Gemini и т.д.)
-- Машинное обучение: алгоритмы, методы, исследования ML
-- Техника: железо, чипы, GPU, TPU, инфраструктура для AI
-- Digital: цифровизация, соцсети, e-commerce с AI
-- Люди: персоналии, интервью, карьерные истории в AI
-- Финансы: инвестиции в AI, финтех, алготрейдинг
-- Наука: научные открытия с помощью AI
-- Обучение: курсы, образование в сфере AI
-- Безопасность: этика AI, регулирование, защита от AI-угроз
-- Творчество: AI в искусстве, генерация контента, музыка
-- Здоровье: AI в медицине, диагностика, фармацевтика
-- Космос: AI в космосе, спутниках, астрономии, космических агентствах
-- Война: военные разработки AI, дроны, оборонные технологии
-- Политика: госрегулирование AI, национальные стратегии, геополитика AI
-- Гаджеты: смартфоны с AI-функциями, умные устройства, носимая электроника, AI-процессоры в телефонах
-- Игры: AI в геймдеве, игровые движки с AI, NPC на основе AI, генерация контента для игр
-- Разработка: программирование с AI, кодинг-ассистенты, AI для разработчиков, инструменты и фреймворки
-- Другие индустрии: если не подходит ни одна категория выше
-
-ТРЕБОВАНИЯ К ТЕГАМ:
-⚠️ ВАЖНО: Максимум 5 тегов на статью! Выбери самые релевантные.
-НЕ используй номера версий в тегах (используй "ChatGPT", а НЕ "ChatGPT-4o")
-Включи теги из 3 групп в порядке важности:
-1. Главные AI модели/продукты (ChatGPT, Claude, Gemini, без версий!)
-2. Ключевые компании (OpenAI, Google, Microsoft)
-3. Важные персоны (если играют центральную роль в новости)
-
-ФОРМАТ ОТВЕТА (строго JSON):
-{{
-  "title": "Заголовок новости на русском",
-  "content": "Полный текст статьи в HTML формате",
-  "excerpt": "Краткая аннотация статьи (150-200 символов)",
-  "slug": "url-slug-transliteratsiya",
-  "categories": ["ОДНА категория из списка выше"],
-  "tags": ["тег1", "тег2", "тег3"],
-  "_yoast_wpseo_title": "SEO заголовок (до 60 символов)",
-  "_yoast_wpseo_metadesc": "SEO описание (до 160 символов)",
-  "focus_keyword": "главное ключевое слово"
-}}
-"""
+        # Загружаем промпт из файла
+        prompt = load_prompt('article_translator',
+            title=article['title'],
+            url=article['url'],
+            published_date=article['published_date'],
+            tags=article.get('tags', ''),
+            categories=article.get('categories', ''),
+            content=article['content'][:8000] if article['content'] else article.get('summary', ''),
+            allowed_categories=', '.join(self.ALLOWED_CATEGORIES)
+        )
         return prompt
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM"""
-        return """You are a 35-year-old expert in programming and machine learning — a seasoned engineer with deep technical knowledge and strong awareness of current AI trends. You are now working as an editor and translator for an AI-focused journal.
-
-Your primary task is to translate and adapt international AI news into Russian, strictly following the principles of classical journalism: report facts clearly, cite sources properly, and avoid distortion or bias.
-
-At the same time, you write with personality — confident, insightful, and occasionally ironic. You're not afraid to highlight overhype, risks, or contradictions in the AI field, while still maintaining an overall positive and future-oriented attitude toward the technology.
-
-Each piece must be:
-- Translated into **fluent, high-quality Russian**
-- Faithful to the original meaning, but engaging and lively
-- Structured clearly, avoiding technical jargon unless necessary
-
-You must include:
-- A **neutral retelling of the news** with proper context
-- At the end, add your commentary as a regular paragraph (300-500 characters)
-- DO NOT format your opinion separately or use headings like "Мнение автора"
-- Your commentary should flow naturally as the final paragraph of the article
-
-⚠️ You must return the final result strictly in **JSON format**."""
+        return load_prompt('article_translator')
     
     def _validate_llm_response(self, response: Dict[str, Any]) -> bool:
         """Validate LLM response format and content"""
-        required_fields = ['title', 'content', 'excerpt', 'slug', 'categories', 'tags']
+        # Tags теперь не обязательны - будут генерироваться отдельно
+        required_fields = ['title', 'content', 'excerpt', 'slug', 'categories']
         
         # Check required fields
         for field in required_fields:
@@ -314,15 +551,7 @@ You must include:
                 logger.error(f"Invalid category: {category}. Allowed: {self.ALLOWED_CATEGORIES}")
                 return False
         
-        # Validate tags
-        if not isinstance(response['tags'], list):
-            logger.error("Tags must be an array")
-            return False
-        
-        # Check tags count (max 5)
-        if len(response['tags']) > 5:
-            logger.error(f"Too many tags: {len(response['tags'])}. Maximum 5 allowed")
-            return False
+        # Tags validation removed - will be handled separately
         
         # Validate slug format (alphanumeric + hyphens)
         if not re.match(r'^[a-z0-9-]+$', response['slug']):
@@ -494,6 +723,20 @@ You must include:
                         logger.info(f"Media processing completed for article {article['article_id']}")
                     else:
                         logger.warning(f"Media processing failed or no media found for article {article['article_id']}")
+                    
+                    # ВАЖНО: Всегда обновляем контент для замены плейсхолдеров
+                    # Это удалит плейсхолдеры если нет изображений или заменит их на реальные URL
+                    logger.info(f"Replacing placeholders for post {wp_post_id}")
+                    updated_content = self._replace_image_placeholders(article['content'], article['article_id'])
+                    
+                    # Обновляем контент поста в WordPress только если контент изменился
+                    if updated_content != article['content']:
+                        if self._update_post_content(wp_post_id, updated_content):
+                            logger.info(f"✅ Post {wp_post_id} content updated (placeholders processed)")
+                        else:
+                            logger.warning(f"⚠️ Failed to update post {wp_post_id} content")
+                    else:
+                        logger.info(f"No placeholders found in post {wp_post_id}, content unchanged")
                 else:
                     results['failed'] += 1
                     
@@ -527,6 +770,93 @@ You must include:
             columns = [description[0] for description in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
+    def _replace_image_placeholders(self, content: str, article_id: Optional[str]) -> str:
+        """Replace [IMAGE_N] placeholders with actual HTML image tags
+        
+        Args:
+            content: Article content with [IMAGE_N] placeholders
+            article_id: Article ID to fetch images from database
+            
+        Returns:
+            Content with placeholders replaced by HTML image tags
+        """
+        if not article_id:
+            logger.warning("No article_id provided for placeholder replacement")
+            return content
+            
+        # Check if content has placeholders
+        import re
+        placeholder_pattern = r'\[IMAGE_(\d+)\]'
+        placeholders = re.findall(placeholder_pattern, content)
+        
+        if not placeholders:
+            logger.info("No image placeholders found in content")
+            return content
+            
+        logger.info(f"Found {len(placeholders)} image placeholders to replace")
+        
+        try:
+            # Get images from database ordered by image_order
+            with self.db.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT 
+                        COALESCE(wp_source_url, url) as display_url,
+                        alt_text,
+                        image_order,
+                        wp_media_id
+                    FROM media_files
+                    WHERE article_id = ?
+                      AND image_order IS NOT NULL
+                      AND image_order > 0
+                      AND status = 'completed'
+                    ORDER BY image_order
+                """, (article_id,))
+                
+                images = cursor.fetchall()
+                
+                if not images:
+                    logger.warning(f"No images with image_order found for article {article_id}")
+                    # Remove placeholders if no images
+                    content = re.sub(placeholder_pattern, '', content)
+                    return content
+                
+                # Create mapping of order to image data
+                image_map = {}
+                for img in images:
+                    image_map[str(img['image_order'])] = {
+                        'display_url': img['display_url'],
+                        'alt_text': img['alt_text'] or '',
+                        'wp_media_id': img['wp_media_id']
+                    }
+                
+                # Replace each placeholder
+                def replace_placeholder(match):
+                    order_num = match.group(1)
+                    if order_num in image_map:
+                        img_data = image_map[order_num]
+                        # WordPress-compatible HTML format with proper class
+                        wp_class = f"wp-image-{img_data['wp_media_id']}" if img_data['wp_media_id'] else "wp-image-auto"
+                        html = f'''<figure class="wp-block-image size-large">
+<img src="{img_data['display_url']}" alt="{img_data['alt_text']}" class="{wp_class}"/>
+</figure>'''
+                        logger.info(f"Replaced [IMAGE_{order_num}] with image")
+                        return html
+                    else:
+                        logger.warning(f"No image found for [IMAGE_{order_num}]")
+                        return ''  # Remove placeholder if no matching image
+                
+                # Replace all placeholders
+                content = re.sub(placeholder_pattern, replace_placeholder, content)
+                
+                logger.info(f"Successfully replaced {len(images)} image placeholders")
+                
+        except Exception as e:
+            logger.error(f"Error replacing image placeholders: {e}")
+            # On error, remove all placeholders to avoid broken content
+            content = re.sub(placeholder_pattern, '', content)
+            
+        return content
+    
     def _prepare_wordpress_post(self, article: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare article data for WordPress API"""
         # Parse JSON fields
@@ -548,9 +878,14 @@ You must include:
         if not category_ids and 'Новости' in category_mapping['categories']:
             category_ids.append(category_mapping['categories']['Новости'])
         
+        # ИЗМЕНЕНО: Не заменяем плейсхолдеры здесь - оставляем их для последующей замены
+        # после загрузки медиа в WordPress
+        # content = self._replace_image_placeholders(article['content'], article.get('article_id'))
+        content = article['content']  # Используем контент как есть, с плейсхолдерами [IMAGE_N]
+        
         post_data = {
             'title': article['title'],
-            'content': article['content'],
+            'content': content,
             'excerpt': article['excerpt'] or '',
             'slug': article['slug'],
             'status': 'draft',  # Start with draft for safety
@@ -584,6 +919,17 @@ You must include:
     
     def _create_wordpress_post(self, post_data: Dict[str, Any]) -> Optional[int]:
         """Create a post in WordPress via REST API"""
+        
+        # Выбираем метод публикации в зависимости от настроек
+        if self.config.use_custom_meta_endpoint:
+            logger.info("Using Custom Post Meta Endpoint for publishing")
+            return self._create_wordpress_post_via_custom_endpoint(post_data)
+        else:
+            logger.info("Using standard WordPress REST API for publishing")
+            return self._create_wordpress_post_standard(post_data)
+    
+    def _create_wordpress_post_standard(self, post_data: Dict[str, Any]) -> Optional[int]:
+        """Create a post in WordPress via standard REST API"""
         try:
             url = f"{self.config.wordpress_api_url}/posts"
             
@@ -611,6 +957,114 @@ You must include:
             logger.error(f"Error creating WordPress post: {str(e)}")
             return None
     
+    def _clean_text(self, text: str) -> str:
+        """Просто очищает текст без ограничений длины"""
+        if not text:
+            return ""
+        return text.strip()
+    
+    def _parse_json_field(self, field) -> list:
+        """Парсит JSON поле из БД или возвращает как есть если уже список"""
+        if isinstance(field, str):
+            try:
+                return json.loads(field)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        elif isinstance(field, list):
+            return field
+        else:
+            return []
+    
+    def _create_wordpress_post_via_custom_endpoint(self, post_data: Dict[str, Any]) -> Optional[int]:
+        """Create post via Custom Post Meta Endpoint plugin"""
+        try:
+            # Получаем meta данные
+            meta = post_data.get('meta', {})
+            
+            # DEBUG: Проверяем что в meta
+            logger.debug(f"Meta keys: {list(meta.keys())}")
+            logger.debug(f"SEO title in meta: {meta.get('_yoast_wpseo_title', 'NOT FOUND')}")
+            logger.debug(f"SEO desc in meta: {meta.get('_yoast_wpseo_metadesc', 'NOT FOUND')}")
+            
+            # DEBUG: Проверяем SEO поля
+            if '_yoast_wpseo_title' in meta:
+                seo_title = self._clean_text(meta.get('_yoast_wpseo_title', ''))
+                logger.debug(f"SEO title: {seo_title[:50]}...")
+            if '_yoast_wpseo_metadesc' in meta:
+                seo_desc = self._clean_text(meta.get('_yoast_wpseo_metadesc', ''))
+                logger.debug(f"SEO desc: {seo_desc[:50]}...")
+            
+            # Преобразуем формат данных для плагина
+            custom_data = {
+                'title': post_data['title'],
+                'content': post_data['content'],
+                'excerpt': post_data.get('excerpt', ''),
+                'slug': post_data['slug'],
+                'status': post_data.get('status', 'draft'),
+                'categories': self._parse_json_field(post_data.get('categories', [])),
+                'tags': self._parse_json_field(post_data.get('tags', [])),
+                # SEO поля БЕЗ ОГРАНИЧЕНИЙ - простая очистка
+                'seo_title': self._clean_text(meta.get('_yoast_wpseo_title', '')) if '_yoast_wpseo_title' in meta else None,
+                'seo_description': self._clean_text(meta.get('_yoast_wpseo_metadesc', '')) if '_yoast_wpseo_metadesc' in meta else None,
+                'focus_keyword': meta.get('_yoast_wpseo_focuskw')
+            }
+            
+            # Убираем None значения для чистоты
+            custom_data = {k: v for k, v in custom_data.items() if v is not None}
+            
+            # URL эндпоинта плагина
+            url = "https://ailynx.ru/wp-json/custom-post-meta/v1/posts/"
+            
+            # Аутентификация
+            auth = HTTPBasicAuth(self.config.wordpress_username, 
+                               self.config.wordpress_app_password)
+            
+            # Заголовки с API ключом
+            headers = {
+                'Content-Type': 'application/json',
+                'X-API-Key': self.config.custom_post_meta_api_key
+            }
+            
+            logger.info(f"Sending request to Custom Post Meta Endpoint")
+            logger.debug(f"Data: {custom_data}")
+            
+            # Отправка запроса
+            response = requests.post(
+                url,
+                json=custom_data,
+                auth=auth,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                post_id = result.get('post_id') or result.get('id')
+                
+                # Логируем полезную информацию из ответа
+                if result.get('success'):
+                    logger.info(f"Successfully created post via Custom Meta Endpoint: {post_id}")
+                    logger.info(f"Post URL: {result.get('post_url', 'N/A')}")
+                    
+                    # Логируем SEO scores если есть
+                    if 'seo_scores' in result:
+                        seo = result['seo_scores']
+                        if seo.get('yoast_available'):
+                            logger.info(f"SEO Score: {seo.get('seo_score', 'N/A')}, Readability: {seo.get('readability_score', 'N/A')}")
+                    
+                    # Логируем какие мета-поля были установлены
+                    if 'meta_fields_set' in result:
+                        logger.info(f"Meta fields set: {', '.join(result['meta_fields_set'])}")
+                
+                return post_id
+            else:
+                logger.error(f"Custom Meta Endpoint error: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error creating post via Custom Meta Endpoint: {str(e)}")
+            return None
+    
     def _mark_as_published(self, wordpress_article_id: int, wp_post_id: int) -> None:
         """Mark article as published in database"""
         with self.db.get_connection() as conn:
@@ -622,6 +1076,48 @@ You must include:
                 WHERE id = ?
             """, (wp_post_id, wordpress_article_id))
         logger.info(f"Marked article {wordpress_article_id} as published with WP ID {wp_post_id}")
+    
+    def _update_post_content(self, wp_post_id: int, new_content: str) -> bool:
+        """Обновляет контент существующего поста в WordPress
+        
+        Args:
+            wp_post_id: ID поста в WordPress
+            new_content: Новый контент с замененными плейсхолдерами
+            
+        Returns:
+            True если обновление прошло успешно, иначе False
+        """
+        try:
+            url = f"{self.config.wordpress_api_url}/posts/{wp_post_id}"
+            auth = HTTPBasicAuth(self.config.wordpress_username, 
+                               self.config.wordpress_app_password)
+            
+            # Подготавливаем данные для обновления
+            update_data = {
+                'content': new_content
+            }
+            
+            logger.info(f"Updating content for WordPress post {wp_post_id}")
+            
+            # Отправляем запрос на обновление
+            response = requests.post(  # WordPress REST API поддерживает POST для обновления
+                url,
+                json=update_data,
+                auth=auth,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                logger.info(f"✅ Successfully updated post {wp_post_id} content with local media URLs")
+                return True
+            else:
+                logger.error(f"Failed to update post content: {response.status_code} - {response.text[:200]}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error updating post content for {wp_post_id}: {str(e)}")
+            return False
     
     def get_category_tag_mapping(self) -> Dict[str, Any]:
         """Get mapping of category and tag names to WordPress IDs"""
@@ -708,16 +1204,23 @@ You must include:
                 
                 if not media_files:
                     logger.info(f"All media files already uploaded for article {article_id}")
-                    # Но всё равно нужно вставить картинки в пост
-                    insert_result = self._insert_images_into_post(wp_post_id, article_id)
-                    if not insert_result:
-                        logger.warning(f"Failed to insert images into post {wp_post_id}")
+                    # ОТКЛЮЧЕНО: Старая система вставки изображений
+                    # Теперь используем систему меток [IMAGE_N] которые заменяются в _prepare_wordpress_post
+                    # insert_result = self._insert_images_into_post(wp_post_id, article_id)
+                    # if not insert_result:
+                    #     logger.warning(f"Failed to insert images into post {wp_post_id}")
                     return True
                 
                 uploaded_media_ids = []
                 
-                for media in media_files:
+                for i, media in enumerate(media_files):
                     try:
+                        # Пауза между медиафайлами (кроме первого)
+                        if i > 0:
+                            import time
+                            logger.info("Waiting 3 seconds before next media file...")
+                            time.sleep(3)
+                        
                         # Подготовка метаданных для перевода
                         metadata_to_translate = {
                             'alt_text': media.get('alt_text', ''),
@@ -750,12 +1253,16 @@ You must include:
                     except Exception as e:
                         logger.error(f"Error processing media {media.get('media_id')}: {str(e)}")
                 
-                # Если загрузили медиафайлы, вставляем их в статью
+                # ОТКЛЮЧЕНО: Старая система вставки изображений
+                # Теперь изображения вставляются через метки [IMAGE_N] в _prepare_wordpress_post
+                # if uploaded_media_ids:
+                #     logger.info(f"Inserting {len(uploaded_media_ids)} images into post {wp_post_id}")
+                #     insert_result = self._insert_images_into_post(wp_post_id, article_id)
+                #     if not insert_result:
+                #         logger.warning(f"Failed to insert images into post {wp_post_id}")
+                
                 if uploaded_media_ids:
-                    logger.info(f"Inserting {len(uploaded_media_ids)} images into post {wp_post_id}")
-                    insert_result = self._insert_images_into_post(wp_post_id, article_id)
-                    if not insert_result:
-                        logger.warning(f"Failed to insert images into post {wp_post_id}")
+                    logger.info(f"Successfully uploaded {len(uploaded_media_ids)} media files, images inserted via [IMAGE_N] placeholders")
                     
                 return True
                 
@@ -852,13 +1359,17 @@ You must include:
                             'error': str(e)
                         })
                 
-                # После загрузки всех медиафайлов вставляем их в статью
+                # ОТКЛЮЧЕНО: Старая система вставки изображений  
+                # Теперь изображения вставляются через метки [IMAGE_N] в _prepare_wordpress_post
+                # if results['uploaded'] > 0:
+                #     logger.info(f"Inserting images into post {article['wp_post_id']}")
+                #     if self._insert_images_into_post(article['wp_post_id'], article['article_id']):
+                #         logger.info(f"Successfully inserted images into post")
+                #     else:
+                #         logger.warning(f"Failed to insert images into post")
+                
                 if results['uploaded'] > 0:
-                    logger.info(f"Inserting images into post {article['wp_post_id']}")
-                    if self._insert_images_into_post(article['wp_post_id'], article['article_id']):
-                        logger.info(f"Successfully inserted images into post")
-                    else:
-                        logger.warning(f"Failed to insert images into post")
+                    logger.info(f"Successfully uploaded {results['uploaded']} images, inserted via [IMAGE_N] placeholders")
                 
                 results['processed'] += 1
                 
@@ -918,7 +1429,7 @@ You must include:
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
     def _translate_media_metadata(self, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Translate media metadata using DeepSeek Chat"""
+        """Translate media metadata using GPT-3.5 Turbo"""
         try:
             # Skip if no meaningful content to translate
             if not metadata.get('alt_text') and not metadata.get('caption'):
@@ -928,36 +1439,16 @@ You must include:
                     'slug': self._generate_slug(metadata.get('article_title', 'image'))
                 }
             
-            prompt = f"""ОБЯЗАТЕЛЬНО переведи метаданные изображения на РУССКИЙ язык.
-
-Статья: {metadata.get('article_title', '')}
-Alt текст (английский): {metadata.get('alt_text', '')}
-
-⚠️ ВАЖНО: ВСЕ тексты должны быть на РУССКОМ языке!
-
-Создай:
-1. SEO-оптимизированный alt текст НА РУССКОМ (до 125 символов)
-2. Человекочитаемый slug для файла (латиница, отражает суть)
-
-Правила:
-- ОБЯЗАТЕЛЬНО переведи английский текст на русский
-- НЕ оставляй английские слова в alt_text_ru
-- Если alt текст пустой или малоинформативный (например, "Image for...", "author"), создай осмысленный alt текст НА РУССКОМ на основе заголовка статьи
-
-Примеры правильного перевода:
-- "Apple Begins Selling New iPhone 16" → "Apple начинает продажи нового iPhone 16"
-- "Tim Cook at conference" → "Тим Кук на конференции"
-
-Верни JSON:
-{{
-    "alt_text_ru": "перевод alt текста НА РУССКОМ или новый осмысленный текст НА РУССКОМ",
-    "slug": "seo-friendly-file-name"
-}}"""
+            # Загружаем промпт из файла
+            prompt = load_prompt('image_metadata',
+                article_title=metadata.get('article_title', ''),
+                alt_text=metadata.get('alt_text', '')
+            )
             
             logger.debug(f"Translating metadata with prompt length: {len(prompt)}")
             
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
+            response = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 timeout=30
@@ -986,6 +1477,49 @@ Alt текст (английский): {metadata.get('alt_text', '')}
         except Exception as e:
             logger.error(f"Error translating metadata: {str(e)}")
             return None
+    
+    def _get_wordpress_media_url(self, wp_media_id: int) -> Optional[str]:
+        """
+        Получить WordPress URL для загруженного медиа файла
+        
+        Args:
+            wp_media_id: ID медиа в WordPress
+            
+        Returns:
+            WordPress URL (source_url) или None если не удалось получить
+        """
+        try:
+            logger.info(f"🔗 Получение WordPress URL для медиа ID {wp_media_id}")
+            
+            # ВАЖНО: Добавляем авторизацию как в других WordPress запросах
+            response = requests.get(
+                f"{self.config.wordpress_api_url}/media/{wp_media_id}",
+                auth=HTTPBasicAuth(
+                    self.config.wordpress_username, 
+                    self.config.wordpress_app_password
+                ),
+                timeout=30
+            )
+            
+            logger.info(f"WordPress media API response: HTTP {response.status_code}")
+            
+            if response.status_code == 200:
+                media_data = response.json()
+                source_url = media_data.get('source_url')
+                if source_url:
+                    logger.info(f"✅ Получен WordPress URL для медиа {wp_media_id}: {source_url}")
+                    return source_url
+                else:
+                    logger.warning(f"⚠️ Нет source_url в ответе для медиа {wp_media_id}. Ответ: {media_data}")
+            elif response.status_code == 401:
+                logger.error(f"❌ Ошибка авторизации при получении медиа {wp_media_id}: HTTP {response.status_code}")
+            else:
+                logger.error(f"❌ Ошибка получения медиа {wp_media_id}: HTTP {response.status_code}, текст: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error getting WordPress media URL: {str(e)}")
+        
+        return None
     
     def _upload_single_media(self, file_path: str, post_id: int, metadata: Dict[str, Any]) -> Optional[int]:
         """Upload a single media file to WordPress"""
@@ -1078,21 +1612,28 @@ Alt текст (английский): {metadata.get('alt_text', '')}
                                  alt_text_ru: Optional[str], caption_ru: Optional[str]) -> None:
         """Save media upload result to database"""
         try:
+            # Получаем WordPress URL для загруженного медиа
+            wp_source_url = None
+            if wp_media_id:
+                wp_source_url = self._get_wordpress_media_url(wp_media_id)
+            
             with self.db.get_connection() as conn:
                 conn.execute("""
                     UPDATE media_files
                     SET wp_media_id = ?,
                         wp_upload_status = 'uploaded',
                         wp_uploaded_at = ?,
-                        alt_text_ru = ?
+                        alt_text_ru = ?,
+                        wp_source_url = ?
                     WHERE id = ?
                 """, (
                     wp_media_id,
                     datetime.now(),
                     alt_text_ru,
+                    wp_source_url,
                     media_id
                 ))
-            logger.info(f"Saved upload result for media {media_id}")
+            logger.info(f"Saved upload result for media {media_id} with WP URL: {wp_source_url}")
         except Exception as e:
             logger.error(f"Error saving upload result: {str(e)}")
     

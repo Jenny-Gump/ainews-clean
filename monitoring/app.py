@@ -28,16 +28,27 @@ class DateTimeEncoder(json.JSONEncoder):
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from monitoring.api import router as monitoring_router
-from monitoring.api import articles_router, memory_router, errors_router, rss_router, profiling_router, logs_router
-from monitoring.extract_api import router as extract_router
+# Import refactored modular API
+from monitoring.api import (
+    router as monitoring_router,
+    articles_router, 
+    memory_router,
+    pipeline_router, 
+    rss_router, 
+    profiling_router, 
+    logs_router,
+    set_monitoring_db
+)
+from monitoring.api_rss_endpoints import router as extract_router
+# NOTE: extract_api.py was removed during MVP simplification - not needed for core functionality
+# from monitoring.extract_api import router as extract_router
 from monitoring.database import MonitoringDatabase
 from monitoring.collectors import SystemMetricsCollector, SourceHealthCollector, SystemResourceCollector
-from monitoring.log_processor import LogDataExtractor, ErrorContextCollector
+# log_processor removed - Real-time Logs and Errors functionality deleted
 from monitoring.parsing_tracker import ParsingProgressTracker
 from monitoring.automation import AutomationEngine
 from monitoring.memory_monitor import initialize_memory_monitor, get_memory_monitor
-from monitoring.log_reader import initialize_log_reader, get_log_reader
+# log_reader removed - Real-time Logs functionality deleted
 from monitoring.process_manager import get_process_manager, ProcessStatus
 from monitoring.rss_monitor import RSSMonitor, RSSIntegration
 
@@ -46,14 +57,12 @@ from monitoring.rss_monitor import RSSMonitor, RSSIntegration
 system_collector = None
 health_collector = None
 system_resource_collector = None
-log_processor = None
-error_context_collector = None
+# Removed: log_processor, error_context_collector, log_reader, log_stream_task
+# These were part of Real-time Logs and Errors functionality
 parsing_progress_tracker = None
 automation_engine = None
 broadcast_task = None
 memory_monitor = None
-log_reader = None
-log_stream_task = None
 process_manager = None
 rss_monitor = None
 rss_integration = None
@@ -67,8 +76,7 @@ class ConnectionManager:
         # FIXED: Use set for O(1) operations instead of list O(n)
         self.active_connections: set = set()
         
-        # Log subscribers
-        self.log_subscribers: set = set()
+        # log_subscribers removed - Real-time Logs functionality deleted
         
         # FIXED: Cache serialized messages to avoid repeated JSON encoding
         self._message_cache = {}
@@ -159,32 +167,10 @@ class ConnectionManager:
             'cached_messages': len(self._message_cache),
             'last_broadcast_time': self._last_broadcast_time,
             'max_connections': self._max_connections,
-            'log_subscribers': len(self.log_subscribers)
+            # 'log_subscribers': removed - Real-time Logs functionality deleted
         }
     
-    async def send_log_to_subscribers(self, log_entry: dict):
-        """Send log entry to all subscribers"""
-        if not self.log_subscribers:
-            return
-        
-        # Create log message
-        message = json.dumps({
-            "type": "log_entry",
-            "log": log_entry
-        }, cls=DateTimeEncoder)
-        
-        # Send to all log subscribers
-        disconnected = set()
-        for websocket in self.log_subscribers:
-            try:
-                await websocket.send_text(message)
-            except Exception:
-                disconnected.add(websocket)
-        
-        # Remove disconnected subscribers
-        for websocket in disconnected:
-            self.log_subscribers.discard(websocket)
-            self.active_connections.discard(websocket)
+    # send_log_to_subscribers removed - Real-time Logs functionality deleted
 
 
 # WebSocket connection manager
@@ -210,32 +196,14 @@ async def broadcast_system_metrics():
                 
                 await manager.broadcast(data)
             
-            await asyncio.sleep(30)  # Reduced frequency to every 30 seconds
+            await asyncio.sleep(120)  # Dashboard updates every 2 minutes
             
         except Exception as e:
             print(f"Error in broadcast_system_metrics: {e}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(120)
 
 
-async def stream_logs_to_subscribers():
-    """Background task to stream logs to WebSocket subscribers"""
-    global log_reader
-    
-    while True:
-        try:
-            if log_reader and manager.log_subscribers:
-                # Get next log entry
-                log_entry = await log_reader.get_log_entry()
-                if log_entry:
-                    # Send to all log subscribers
-                    await manager.send_log_to_subscribers(log_entry)
-            else:
-                # No subscribers or reader not initialized
-                await asyncio.sleep(1)
-                
-        except Exception as e:
-            print(f"Error in stream_logs_to_subscribers: {e}")
-            await asyncio.sleep(1)
+# stream_logs_to_subscribers removed - Real-time Logs functionality deleted
 
 
 async def broadcast_process_update(update_data: Dict):
@@ -402,27 +370,13 @@ async def get_current_parsing_progress():
     }
 
 
-async def get_current_error_summary():
-    """Get current error summary"""
-    try:
-        global error_context_collector
-        if error_context_collector:
-            groups = error_context_collector.get_error_groups()
-            return groups
-    except Exception as e:
-        print(f"Error getting error summary: {e}")
-    
-    return {
-        "total_groups": 0,
-        "total_errors": 0,
-        "groups": []
-    }
+# get_current_error_summary removed - Errors functionality deleted
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global system_collector, health_collector, system_resource_collector, log_processor, error_context_collector, parsing_progress_tracker, automation_engine, broadcast_task, memory_monitor, log_reader, log_stream_task, process_manager, rss_monitor, rss_integration, rss_monitor_task
+    global system_collector, health_collector, system_resource_collector, parsing_progress_tracker, automation_engine, broadcast_task, memory_monitor, process_manager, rss_monitor, rss_integration, rss_monitor_task
     
     try:
         # Ensure data directory exists - use absolute path to project data directory
@@ -437,13 +391,16 @@ async def lifespan(app: FastAPI):
         from monitoring.api import set_monitoring_db
         set_monitoring_db(monitoring_db)
         
-        # Initialize error context collector first with absolute path to logs
-        logs_dir = Path(__file__).parent.parent / "logs"
-        error_context_collector = ErrorContextCollector(monitoring_db, logs_dir=str(logs_dir))
+        # Set monitoring database in RSS endpoints module
+        from monitoring.api_rss_endpoints import set_monitoring_db as set_rss_db
+        set_rss_db(monitoring_db)
         
-        # Start log processor with error collector
-        log_processor = LogDataExtractor(monitoring_db, logs_dir=str(logs_dir), error_collector=error_context_collector)
-        log_processor.start()
+        # Set monitoring database in pipeline API module
+        from monitoring.api.pipeline import set_monitoring_db as set_pipeline_db
+        set_pipeline_db(monitoring_db)
+        
+        # Removed: error_context_collector and log_processor initialization
+        # These were part of Real-time Logs and Errors functionality
         
         # Initialize parsing progress tracker
         parsing_progress_tracker = ParsingProgressTracker(monitoring_db)
@@ -455,7 +412,7 @@ async def lifespan(app: FastAPI):
         
         # Start collectors with log processor
         system_collector = SystemMetricsCollector(monitoring_db)
-        health_collector = SourceHealthCollector(monitoring_db, log_processor=log_processor)
+        health_collector = SourceHealthCollector(monitoring_db)
         system_resource_collector = SystemResourceCollector(monitoring_db, interval_seconds=30)
         
         system_collector.start()
@@ -466,10 +423,7 @@ async def lifespan(app: FastAPI):
         memory_monitor = initialize_memory_monitor(monitoring_db, max_memory_gb=10.0)
         
         # Register cleanup callbacks for memory monitor
-        memory_monitor.register_cleanup_callback(
-            lambda: log_processor.force_cleanup() if log_processor else None,
-            "LogProcessor cleanup"
-        )
+        # (LogProcessor cleanup removed as it was part of deleted Real-time Logs functionality)
         memory_monitor.register_cleanup_callback(
             lambda: system_collector._clear_caches() if system_collector and hasattr(system_collector, '_clear_caches') else None,
             "SystemCollector cache cleanup"
@@ -496,11 +450,7 @@ async def lifespan(app: FastAPI):
         # Start memory monitor
         memory_monitor.start()
         
-        # Initialize and start log reader with correct path
-        import os
-        log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
-        log_reader = initialize_log_reader(log_dir)
-        await log_reader.start()
+        # Removed: log_reader initialization - Real-time Logs functionality deleted
         
         # Initialize RSS monitor and integration
         rss_monitor = RSSMonitor(monitoring_db)
@@ -623,8 +573,7 @@ async def lifespan(app: FastAPI):
         # Start WebSocket broadcast task
         broadcast_task = asyncio.create_task(broadcast_system_metrics())
         
-        # Start log streaming task
-        log_stream_task = asyncio.create_task(stream_logs_to_subscribers())
+        # Removed: log_stream_task - Real-time Logs functionality deleted
         
         print(f"Monitoring system started with database at {db_path}")
         print(f"Automation engine initialized")
@@ -647,9 +596,7 @@ async def lifespan(app: FastAPI):
         if broadcast_task and not broadcast_task.done():
             broadcast_task.cancel()
         
-        # Cancel log stream task if it exists
-        if log_stream_task and not log_stream_task.done():
-            log_stream_task.cancel()
+        # Removed: log_stream_task cancel - Real-time Logs functionality deleted
         
         # Cancel RSS monitor task if it exists
         if rss_monitor_task and not rss_monitor_task.done():
@@ -661,16 +608,14 @@ async def lifespan(app: FastAPI):
             health_collector.stop()
         if system_resource_collector:
             system_resource_collector.stop()
-        if log_processor:
-            log_processor.stop()
+        # Removed: log_processor.stop() - Real-time Logs functionality deleted
         if parsing_progress_tracker:
             parsing_progress_tracker.stop()
         if automation_engine:
             await automation_engine.stop()
         if memory_monitor:
             memory_monitor.stop()
-        if log_reader:
-            await log_reader.stop()
+        # Removed: log_reader.stop() - Real-time Logs functionality deleted
         if rss_monitor:
             rss_monitor.stop_monitoring()
         
@@ -697,15 +642,18 @@ if media_path.exists():
 
 # Include monitoring API routes
 app.include_router(monitoring_router)
-# Include extract API routes
+# Include extract API routes for RSS Discovery
 app.include_router(extract_router)
 
 # Include articles API routes directly (without prefix to avoid conflicts)
 app.include_router(articles_router)
 
-# Include new Memory & Errors API routes (Day 4)
+# Include new Memory API routes (Day 4)
 app.include_router(memory_router)
-app.include_router(errors_router)
+# errors_router removed - Errors functionality deleted
+
+# Include Pipeline API routes (Single pipeline integration)
+app.include_router(pipeline_router)
 
 # Include RSS API routes
 app.include_router(rss_router)
@@ -715,6 +663,10 @@ app.include_router(profiling_router)
 
 # Include Logs API routes
 app.include_router(logs_router)
+
+# Include Database API routes
+from monitoring.api.core import db_router
+app.include_router(db_router)
 
 
 @app.websocket("/ws")
@@ -743,19 +695,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 message = await websocket.receive_text()
                 data = json.loads(message)
                 
-                if data.get('type') == 'subscribe_logs':
-                    client_subscriptions.add('logs')
-                    # Add this websocket to log subscribers
-                    if hasattr(manager, 'log_subscribers'):
-                        manager.log_subscribers.add(websocket)
-                    else:
-                        manager.log_subscribers = {websocket}
-                    
-                    await websocket.send_text(json.dumps({
-                        "type": "subscription_confirmed",
-                        "subscription": "logs"
-                    }))
-                elif data.get('type') == 'ping':
+                # subscribe_logs removed - Real-time Logs functionality deleted
+                if data.get('type') == 'ping':
                     await websocket.send_text(json.dumps({"type": "pong"}))
                     
             except WebSocketDisconnect:
@@ -771,60 +712,23 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket connection error: {e}")
     finally:
-        # Clean up log subscribers if needed
-        if 'logs' in client_subscriptions and hasattr(manager, 'log_subscribers'):
-            manager.log_subscribers.discard(websocket)
+        # log_subscribers cleanup removed - Real-time Logs functionality deleted
         manager.disconnect(websocket)
 
 
-@app.websocket("/ws/logs")
-async def websocket_logs_endpoint(websocket: WebSocket):
-    """Direct WebSocket endpoint for log streaming"""
-    await websocket.accept()
-    
-    # Add to log subscribers
-    manager.log_subscribers.add(websocket)
-    manager.active_connections.add(websocket)
-    
-    try:
-        # Send initial confirmation
-        await websocket.send_text(json.dumps({
-            "type": "connection_established",
-            "message": "Connected to log stream"
-        }))
-        
-        # Keep connection alive
-        while True:
-            try:
-                # Wait for any message (ping/pong)
-                message = await websocket.receive_text()
-                data = json.loads(message)
-                
-                if data.get('type') == 'ping':
-                    await websocket.send_text(json.dumps({"type": "pong"}))
-                    
-            except WebSocketDisconnect:
-                break
-            except json.JSONDecodeError:
-                pass
-            except Exception as e:
-                print(f"WebSocket error in /ws/logs: {e}")
-                break
-                
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        print(f"WebSocket connection error: {e}")
-    finally:
-        # Clean up
-        manager.log_subscribers.discard(websocket)
-        manager.disconnect(websocket)
+# /ws/logs WebSocket endpoint removed - Real-time Logs functionality deleted
 
 
 @app.get("/")
 async def root():
     """Serve the monitoring dashboard"""
     return FileResponse(str(static_path / "index.html"))
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve the favicon"""
+    return FileResponse(str(static_path / "favicon.ico"))
 
 
 @app.get("/health")
@@ -835,7 +739,7 @@ async def health_check():
         "collectors": {
             "system": system_collector is not None and system_collector._running,
             "health": health_collector is not None and health_collector._running,
-            "log_processor": log_processor is not None and log_processor._running
+            # "log_processor": removed - Real-time Logs functionality deleted
         },
         "automation": {
             "enabled": automation_engine is not None,
@@ -947,27 +851,6 @@ async def quick_health_check():
             "timestamp": datetime.utcnow().isoformat(),
             "error": str(e)
         }
-
-
-@app.get("/debug/log-reader")
-async def debug_log_reader_status():
-    """Debug endpoint to check log_reader status"""
-    global log_reader
-    try:
-        from monitoring.log_reader import get_log_reader
-        lr = get_log_reader()
-        
-        return {
-            "global_log_reader_exists": log_reader is not None,
-            "get_log_reader_result": lr is not None,
-            "log_reader_running": lr.running if lr else False,
-            "log_reader_queue_size": lr.queue.qsize() if lr else 0,
-            "readers_count": len(lr.readers) if lr else 0,
-            "positions": lr.file_positions if lr else {},
-            "manager_log_subscribers": len(manager.log_subscribers) if manager else 0
-        }
-    except Exception as e:
-        return {"error": str(e), "global_log_reader_exists": log_reader is not None}
 
 
 def create_pid_file():

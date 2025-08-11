@@ -1,0 +1,402 @@
+{
+  "tracking_sources": [
+    {
+      "source_id": "anthropic",
+      "name": "Anthropic News",
+      "url": "https://www.anthropic.com/news",
+      "rss_url": "https://www.anthropic.com/news.rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "google_ai_blog",
+      "name": "Google AI Blog",
+      "url": "https://blog.google/technology/ai/",
+      "rss_url": "https://blog.google/technology/ai/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "google_research",
+      "name": "Google Research Blog",
+      "url": "https://research.google/blog/",
+      "rss_url": "https://research.google/blog/rss",
+      "type": "web",
+      "category": "ai_research"
+    },
+    {
+      "source_id": "deepmind",
+      "name": "DeepMind Blog",
+      "url": "https://deepmind.google/discover/blog/",
+      "rss_url": "https://deepmind.google/blog/rss.xml",
+      "type": "web",
+      "category": "ai_research"
+    },
+    {
+      "source_id": "openai_tracking",
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/",
+      "rss_url": "https://openai.com/news/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "microsoft_ai_news",
+      "name": "Microsoft AI News",
+      "url": "https://news.microsoft.com/source/topics/ai/",
+      "rss_url": "https://news.microsoft.com/source/topics/ai/feed/",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "huggingface",
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog",
+      "rss_url": "https://huggingface.co/blog/feed.xml",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "google_cloud_ai",
+      "name": "Google Cloud AI Blog",
+      "url": "https://cloud.google.com/blog/products/ai-machine-learning",
+      "rss_url": "https://cloud.google.com/blog/products/ai-machine-learning/rss",
+      "type": "web",
+      "category": "cloud_ai"
+    },
+    {
+      "source_id": "aws_ai",
+      "name": "AWS Machine Learning Blog",
+      "url": "https://aws.amazon.com/blogs/machine-learning/",
+      "rss_url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+      "type": "web",
+      "category": "cloud_ai"
+    },
+    {
+      "source_id": "databricks_tracking",
+      "name": "Databricks Blog",
+      "url": "https://www.databricks.com/blog/category/engineering/ai",
+      "rss_url": "https://www.databricks.com/blog/feed.xml",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "mistral",
+      "name": "Mistral AI News",
+      "url": "https://mistral.ai/news",
+      "rss_url": "https://mistral.ai/news/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "cohere",
+      "name": "Cohere Blog",
+      "url": "https://cohere.com/blog",
+      "rss_url": "https://cohere.com/blog/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "ai21",
+      "name": "AI21 Labs Blog",
+      "url": "https://www.ai21.com/blog",
+      "rss_url": "https://www.ai21.com/blog/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "scale",
+      "name": "Scale AI Blog",
+      "url": "https://scale.com/blog",
+      "rss_url": "https://scale.com/blog/rss",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "together",
+      "name": "Together AI Blog",
+      "url": "https://www.together.ai/blog",
+      "rss_url": "https://www.together.ai/blog/rss",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "stability",
+      "name": "Stability AI News",
+      "url": "https://stability.ai/news",
+      "rss_url": "https://stability.ai/news/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "elevenlabs",
+      "name": "ElevenLabs Blog",
+      "url": "https://elevenlabs.io/blog",
+      "rss_url": "https://elevenlabs.io/blog/rss",
+      "type": "web",
+      "category": "ai_audio"
+    },
+    {
+      "source_id": "waymo",
+      "name": "Waymo Blog",
+      "url": "https://waymo.com/blog/",
+      "rss_url": "https://waymo.com/blog/rss",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "openevidence",
+      "name": "OpenEvidence Announcements",
+      "url": "https://www.openevidence.com/announcements",
+      "rss_url": "https://www.openevidence.com/announcements/rss",
+      "type": "web",
+      "category": "ai_healthcare"
+    },
+    {
+      "source_id": "writer",
+      "name": "Writer Engineering Blog",
+      "url": "https://writer.com/engineering/",
+      "rss_url": "https://writer.com/engineering/rss",
+      "type": "web",
+      "category": "ai_writing"
+    },
+    {
+      "source_id": "crusoe",
+      "name": "Crusoe AI Blog",
+      "url": "https://crusoe.ai/blog/",
+      "rss_url": "https://crusoe.ai/blog/rss",
+      "type": "web",
+      "category": "ai_infrastructure"
+    },
+    {
+      "source_id": "lambda",
+      "name": "Lambda Labs Blog",
+      "url": "https://lambda.ai/blog",
+      "rss_url": "https://lambda.ai/blog/rss",
+      "type": "web",
+      "category": "ai_infrastructure"
+    },
+    {
+      "source_id": "mit_news",
+      "name": "MIT News - AI",
+      "url": "https://news.mit.edu/topic/artificial-intelligence2",
+      "rss_url": "https://news.mit.edu/topic/artificial-intelligence2/rss",
+      "type": "web",
+      "category": "ai_research"
+    },
+    {
+      "source_id": "stanford_ai",
+      "name": "Stanford HAI News",
+      "url": "https://hai.stanford.edu/news",
+      "rss_url": "https://hai.stanford.edu/news/rss",
+      "type": "web",
+      "category": "ai_research"
+    },
+    {
+      "source_id": "alpha_sense",
+      "name": "AlphaSense Blog",
+      "url": "https://www.alpha-sense.com/blog/",
+      "rss_url": "https://www.alpha-sense.com/blog/feed",
+      "type": "web",
+      "category": "ai_finance"
+    },
+    {
+      "source_id": "instabase",
+      "name": "Instabase Blog",
+      "url": "https://instabase.com/blog/",
+      "rss_url": "https://instabase.com/blog/feed",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "appzen",
+      "name": "AppZen Blog",
+      "url": "https://www.appzen.com/blog",
+      "rss_url": "https://www.appzen.com/blog/feed",
+      "type": "web",
+      "category": "ai_finance"
+    },
+    {
+      "source_id": "soundhound",
+      "name": "SoundHound Voice AI Blog",
+      "url": "https://www.soundhound.com/voice-ai-blog/",
+      "rss_url": "https://www.soundhound.com/voice-ai-blog/feed",
+      "type": "web",
+      "category": "ai_audio"
+    },
+    {
+      "source_id": "b12",
+      "name": "B12 Blog",
+      "url": "https://www.b12.io/blog/",
+      "rss_url": "https://www.b12.io/blog/feed",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "c3ai",
+      "name": "C3 AI Blog",
+      "url": "https://c3.ai/blog/",
+      "rss_url": "https://c3.ai/blog/feed",
+      "type": "web",
+      "category": "ai_enterprise"
+    },
+    {
+      "source_id": "standardbots",
+      "name": "Standard Bots Blog",
+      "url": "https://standardbots.com/blog",
+      "rss_url": "https://standardbots.com/blog/feed",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "abb_robotics",
+      "name": "ABB Robotics News",
+      "url": "https://new.abb.com/products/robotics/news-and-media",
+      "rss_url": "https://new.abb.com/products/robotics/news-and-media/rss",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "fanuc",
+      "name": "FANUC America News",
+      "url": "https://www.fanucamerica.com/news-resources/articles/all",
+      "rss_url": "https://www.fanucamerica.com/news-resources/articles/all/rss",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "kinova",
+      "name": "Kinova Robotics Press",
+      "url": "https://www.kinovarobotics.com/press",
+      "rss_url": "https://www.kinovarobotics.com/press/rss.xml",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "doosan_robotics",
+      "name": "Doosan Robotics News",
+      "url": "https://www.doosanrobotics.com/en/about/promotion/news/",
+      "rss_url": "https://www.doosanrobotics.com/en/about/promotion/news/rss",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "tempus",
+      "name": "Tempus Tech Blog",
+      "url": "https://www.tempus.com/tech-blog/",
+      "rss_url": "https://www.tempus.com/tech-blog/feed",
+      "type": "web",
+      "category": "ai_healthcare"
+    },
+    {
+      "source_id": "pathai",
+      "name": "PathAI News",
+      "url": "https://www.pathai.com/news/",
+      "rss_url": "https://www.pathai.com/news/rss",
+      "type": "web",
+      "category": "ai_healthcare"
+    },
+    {
+      "source_id": "augmedix",
+      "name": "Augmedix Press Room",
+      "url": "https://www.augmedix.com/press-room",
+      "rss_url": "https://www.augmedix.com/press-room/rss.xml",
+      "type": "web",
+      "category": "ai_healthcare"
+    },
+    {
+      "source_id": "manus",
+      "name": "Manus Blog",
+      "url": "https://manus.im/blog",
+      "rss_url": "https://manus.im/blog/feed",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
+      "source_id": "uizard",
+      "name": "Uizard Blog",
+      "url": "https://uizard.io/blog/",
+      "rss_url": "https://uizard.io/blog/feed",
+      "type": "web",
+      "category": "ai_design"
+    },
+    {
+      "source_id": "mindfoundry",
+      "name": "Mind Foundry Blog",
+      "url": "https://www.mindfoundry.ai/blog",
+      "rss_url": "https://www.mindfoundry.ai/blog/feed",
+      "type": "web",
+      "category": "ai_platforms"
+    },
+    {
+      "source_id": "nscale",
+      "name": "nScale Blog",
+      "url": "https://www.nscale.com/blog",
+      "rss_url": "https://www.nscale.com/blog/feed",
+      "type": "web",
+      "category": "ai_infrastructure"
+    },
+    {
+      "source_id": "perplexity",
+      "name": "Perplexity AI Blog",
+      "url": "https://blog.perplexity.ai/",
+      "rss_url": "https://blog.perplexity.ai/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "cerebras",
+      "name": "Cerebras AI Blog",
+      "url": "https://cerebras.ai/blog",
+      "rss_url": "https://cerebras.ai/blog/rss",
+      "type": "web",
+      "category": "ai_infrastructure"
+    },
+    {
+      "source_id": "runway",
+      "name": "Runway ML Research",
+      "url": "https://research.runwayml.com/",
+      "rss_url": "https://research.runwayml.com/rss",
+      "type": "web",
+      "category": "ai_companies"
+    },
+    {
+      "source_id": "suno",
+      "name": "Suno AI Blog",
+      "url": "https://suno.com/blog",
+      "rss_url": "https://suno.com/blog/rss",
+      "type": "web",
+      "category": "ai_audio"
+    },
+    {
+      "source_id": "audioscenic",
+      "name": "AudioScenic News",
+      "url": "https://www.audioscenic.com/news",
+      "rss_url": "https://www.audioscenic.com/news/rss",
+      "type": "web",
+      "category": "ai_audio"
+    },
+    {
+      "source_id": "cloudflare",
+      "name": "Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/",
+      "rss_url": "https://blog.cloudflare.com/rss/",
+      "type": "web",
+      "category": "ai_infrastructure"
+    },
+    {
+      "source_id": "cursor",
+      "name": "Cursor Blog",
+      "url": "https://cursor.com/blog",
+      "rss_url": "",
+      "type": "web",
+      "category": "ai_development"
+    }
+  ],
+  "settings": {
+    "default_limit": 20,
+    "scan_interval_hours": 6,
+    "export_after_scan": false,
+    "tag_group_prefix": "tracking_"
+  }
+}

@@ -22,13 +22,16 @@ class Config:
     wordpress_llm_model = os.getenv('WORDPRESS_LLM_MODEL', 'gpt-4o-mini')
     
     # WordPress настройки
-    wordpress_batch_size = int(os.getenv('WORDPRESS_BATCH_SIZE', '5'))
     wordpress_retry_attempts = int(os.getenv('WORDPRESS_RETRY_ATTEMPTS', '3'))
     
     # WordPress API настройки
     wordpress_api_url = os.getenv('WORDPRESS_API_URL')
     wordpress_username = os.getenv('WORDPRESS_USERNAME')
     wordpress_app_password = os.getenv('WORDPRESS_APP_PASSWORD')
+    
+    # Custom Post Meta Endpoint настройки
+    use_custom_meta_endpoint = os.getenv('USE_CUSTOM_META_ENDPOINT', 'false').lower() == 'true'
+    custom_post_meta_api_key = os.getenv('CUSTOM_POST_META_API_KEY', '')
     
     # Ограничения и тайм-ауты
     REQUEST_TIMEOUT = 120  # 2 минуты на Extract запрос
@@ -37,11 +40,11 @@ class Config:
     
     # Размеры файлов
     MAX_FILE_SIZE = 2 * 1024 * 1024   # 2MB максимум для медиа
-    MIN_FILE_SIZE = 3 * 1024          # 3KB минимум
+    MIN_FILE_SIZE = 2 * 1024          # 2KB минимум
     
     # Размеры изображений (пиксели)
-    MIN_IMAGE_WIDTH = 300   # Минимальная ширина 300px
-    MIN_IMAGE_HEIGHT = 300  # Минимальная высота 300px
+    MIN_IMAGE_WIDTH = 250   # Минимальная ширина 250px
+    MIN_IMAGE_HEIGHT = 250  # Минимальная высота 250px
     
     # База данных (общая с основной системой)
     DATABASE_PATH = "data/ainews.db"

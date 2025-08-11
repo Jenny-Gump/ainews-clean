@@ -31,19 +31,110 @@ class Database:
     
     @contextmanager
     def get_connection(self):
-        """Context manager for database connections"""
+        """Context manager for database connections with performance logging"""
+        start_time = time.time()
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
+        
+        # Track connection acquisition time
+        connect_time = time.time() - start_time
+        if connect_time > 0.1:  # Log slow connections (>100ms)
+            from app_logging import log_operation
+            log_operation('db_connection_slow',
+                duration_seconds=connect_time,
+                db_path=self.db_path,
+                timeout_setting=30.0
+            )
+        
         try:
             yield conn
             conn.commit()
-        except Exception:
+        except Exception as e:
             conn.rollback()
+            # Log database errors
+            from app_logging import log_error
+            log_error('database_error', str(e),
+                db_path=self.db_path,
+                connection_time=connect_time
+            )
             raise
         finally:
             conn.close()
+    
+    def _log_slow_query(self, query: str, duration: float, params=None, table_name: str = None):
+        """Log slow database queries for performance monitoring"""
+        if duration > 0.1:  # Log queries taking >100ms
+            from app_logging import log_operation
+            log_operation('db_query_slow',
+                query_type=self._get_query_type(query),
+                table_name=table_name or self._extract_table_name(query),
+                duration_seconds=duration,
+                query_preview=query[:200],  # First 200 chars of query
+                has_params=params is not None,
+                params_count=len(params) if params else 0
+            )
+    
+    def _get_query_type(self, query: str) -> str:
+        """Extract query type (SELECT, INSERT, UPDATE, DELETE) from SQL"""
+        query_upper = query.strip().upper()
+        if query_upper.startswith('SELECT'):
+            return 'SELECT'
+        elif query_upper.startswith('INSERT'):
+            return 'INSERT'
+        elif query_upper.startswith('UPDATE'):
+            return 'UPDATE'
+        elif query_upper.startswith('DELETE'):
+            return 'DELETE'
+        elif query_upper.startswith('CREATE'):
+            return 'CREATE'
+        else:
+            return 'OTHER'
+    
+    def _extract_table_name(self, query: str) -> str:
+        """Extract table name from SQL query"""
+        import re
+        # Simple regex to extract table name
+        patterns = [
+            r'FROM\s+([\w_]+)',
+            r'INSERT\s+INTO\s+([\w_]+)',
+            r'UPDATE\s+([\w_]+)',
+            r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w_]+)'
+        ]
+        
+        query_upper = query.upper()
+        for pattern in patterns:
+            match = re.search(pattern, query_upper)
+            if match:
+                return match.group(1).lower()
+        
+        return 'unknown'
+    
+    def execute_with_timing(self, conn, query: str, params=None, table_name: str = None):
+        """Execute query with performance timing"""
+        start_time = time.time()
+        try:
+            if params:
+                result = conn.execute(query, params)
+            else:
+                result = conn.execute(query)
+            
+            duration = time.time() - start_time
+            self._log_slow_query(query, duration, params, table_name)
+            
+            return result
+        except Exception as e:
+            duration = time.time() - start_time
+            # Log failed query
+            from app_logging import log_error
+            log_error('db_query_failed', str(e),
+                query_type=self._get_query_type(query),
+                table_name=table_name or self._extract_table_name(query),
+                duration_seconds=duration,
+                query_preview=query[:200]
+            )
+            raise
     
     def _init_database(self):
         """Initialize database schema"""
@@ -108,6 +199,7 @@ class Database:
                     height INTEGER,
                     alt_text TEXT,
                     caption TEXT,
+                    image_order INTEGER,
                     status TEXT DEFAULT 'pending',
                     error TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -185,7 +277,6 @@ class Database:
                 WHERE source_id = ?
             """, (status, error, source_id))
             
-            logger.debug(f"Updated source {source_id} status to {status}")
     
     def update_source_last_parsed(self, source_id: str, timestamp: Optional[datetime] = None):
         """Update source last parsed timestamp"""
@@ -253,8 +344,8 @@ class Database:
         
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
+                # Insert article with performance timing
+                self.execute_with_timing(conn, """
                     INSERT INTO articles (
                         article_id, source_id, url, title, description,
                         published_date, content_status, discovered_via, created_at
@@ -267,16 +358,15 @@ class Database:
                     article.get('description'),
                     article.get('published_date'),
                     article.get('discovered_via', 'rss')
-                ))
+                ), table_name='articles')
                 
-                # Update source statistics
-                conn.execute("""
+                # Update source statistics with timing
+                self.execute_with_timing(conn, """
                     UPDATE sources 
                     SET total_articles = total_articles + 1
                     WHERE source_id = ?
-                """, (article['source_id'],))
+                """, (article['source_id'],), table_name='sources')
                 
-                logger.debug(f"Article inserted: {article_id}")
                 return article_id
                 
         except sqlite3.IntegrityError as e:
@@ -353,7 +443,6 @@ class Database:
             query = f"UPDATE articles SET {', '.join(fields)} WHERE article_id = ?"
             
             conn.execute(query, values)
-            logger.debug(f"Updated article content: {article_id}")
     
     def update_article_status(self, article_id: str, status: str, error: Optional[str] = None):
         """Update article status"""
@@ -371,7 +460,6 @@ class Database:
                     WHERE article_id = ?
                 """, (status, article_id))
             
-            logger.debug(f"Updated article {article_id} status to {status}")
     
     def increment_article_retry_count(self, article_id: str):
         """Increment retry count for article"""
@@ -402,7 +490,7 @@ class Database:
         with self.get_connection() as conn:
             try:
                 conn.execute("""
-                    INSERT INTO media_files (
+                    INSERT OR REPLACE INTO media_files (
                         media_id, article_id, source_id, url, file_path,
                         file_size, type, mime_type, width, height, 
                         alt_text, caption, status, created_at
@@ -498,7 +586,6 @@ class Database:
                 INSERT OR REPLACE INTO global_config (key, value, description, updated_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
             """, (key, value, description))
-            logger.debug(f"Updated global config: {key} = {value}")
     
     def get_global_last_parsed(self) -> str:
         """Get global last parsed timestamp"""
@@ -623,7 +710,109 @@ class Database:
             return cursor.rowcount
     
     def vacuum(self):
-        """Optimize database"""
+        """Optimize database with performance logging"""
+        start_time = time.time()
         conn = sqlite3.connect(self.db_path)
-        conn.execute("VACUUM")
-        conn.close()
+        try:
+            conn.execute("VACUUM")
+            vacuum_time = time.time() - start_time
+            
+            # Log vacuum operation
+            from app_logging import log_operation
+            log_operation('db_vacuum',
+                duration_seconds=vacuum_time,
+                db_path=self.db_path,
+                operation='database_optimization'
+            )
+            
+            logger.info(f"Database VACUUM completed in {vacuum_time:.2f}s")
+            
+        except Exception as e:
+            # Log vacuum failure
+            from app_logging import log_error
+            log_error('db_vacuum_failed', str(e),
+                db_path=self.db_path,
+                duration_seconds=time.time() - start_time
+            )
+            raise
+        finally:
+            conn.close()
+    
+    def check_database_health(self) -> Dict:
+        """Check database health and log any issues"""
+        health_report = {
+            'healthy': True,
+            'issues': [],
+            'metrics': {}
+        }
+        
+        start_time = time.time()
+        try:
+            with self.get_connection() as conn:
+                # Check database integrity
+                integrity_start = time.time()
+                cursor = conn.execute("PRAGMA integrity_check")
+                integrity_result = cursor.fetchone()[0]
+                integrity_time = time.time() - integrity_start
+                
+                if integrity_result != 'ok':
+                    health_report['healthy'] = False
+                    health_report['issues'].append(f'Integrity check failed: {integrity_result}')
+                
+                # Check table sizes and potential performance issues
+                cursor = conn.execute("""
+                    SELECT name, 
+                           (SELECT COUNT(*) FROM sqlite_master 
+                            WHERE type='table' AND name=m.name) as table_count
+                    FROM sqlite_master m 
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """)
+                
+                tables = cursor.fetchall()
+                total_tables = len(tables)
+                
+                # Check article table size
+                cursor = conn.execute("SELECT COUNT(*) FROM articles")
+                articles_count = cursor.fetchone()[0]
+                
+                # Check for potential performance issues
+                if articles_count > 100000:
+                    health_report['issues'].append(f'Large articles table: {articles_count} rows')
+                
+                # Check database file size
+                import os
+                if os.path.exists(self.db_path):
+                    db_size_mb = os.path.getsize(self.db_path) / 1024 / 1024
+                    health_report['metrics']['db_size_mb'] = round(db_size_mb, 2)
+                    
+                    if db_size_mb > 1000:  # >1GB
+                        health_report['issues'].append(f'Large database file: {db_size_mb:.1f}MB')
+                
+                health_report['metrics']['total_tables'] = total_tables
+                health_report['metrics']['articles_count'] = articles_count
+                health_report['metrics']['integrity_check_time'] = integrity_time
+                
+        except Exception as e:
+            health_report['healthy'] = False
+            health_report['issues'].append(f'Health check failed: {str(e)}')
+        
+        check_duration = time.time() - start_time
+        
+        # Log database health check
+        from app_logging import log_operation
+        log_operation('db_health_check',
+            healthy=health_report['healthy'],
+            issues_count=len(health_report['issues']),
+            duration_seconds=check_duration,
+            db_size_mb=health_report['metrics'].get('db_size_mb', 0),
+            articles_count=health_report['metrics'].get('articles_count', 0)
+        )
+        
+        if not health_report['healthy']:
+            from app_logging import log_error
+            log_error('db_health_issues', 
+                      f"Database health issues: {'; '.join(health_report['issues'])}",
+                      issues_count=len(health_report['issues'])
+            )
+        
+        return health_report

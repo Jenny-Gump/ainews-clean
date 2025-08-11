@@ -201,6 +201,15 @@
             animation: pulse 2s infinite;
         }
 
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         /* Notification styles */
         .notification {
             position: fixed;
@@ -233,6 +242,50 @@
             border-left: 4px solid oklch(0.7451 0.1294 89.1022);
         }
         
+        /* Responsive table styles */
+        @media (max-width: 768px) {
+            .table-container {
+                padding: 0.5rem;
+            }
+            
+            table th, table td {
+                padding: 0.5rem 0.25rem !important;
+                font-size: 0.75rem;
+            }
+            
+            .table-title {
+                font-size: 1rem !important;
+                line-height: 1.2;
+                max-width: 200px;
+            }
+            
+            .filter-dropdown {
+                width: 200px !important;
+                left: auto !important;
+                right: 0 !important;
+            }
+        }
+
+        @media (max-width: 640px) {
+            table th, table td {
+                padding: 0.25rem !important;
+                font-size: 0.7rem;
+            }
+            
+            .table-title {
+                max-width: 150px;
+            }
+            
+            .btn-group {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            
+            .btn-group > button {
+                width: 100%;
+            }
+        }
+
         /* Extract API Button Styles - Fixed without OKLCH */
         .extract-btn {
             padding: 0.5rem 1rem;
@@ -301,12 +354,13 @@
         }
         
         /* Column widths for proper alignment */
-        #articles-tab th:nth-child(1) { width: 35%; } /* Title */
-        #articles-tab th:nth-child(2) { width: 15%; } /* Source */
-        #articles-tab th:nth-child(3) { width: 15%; } /* Date */
-        #articles-tab th:nth-child(4) { width: 10%; } /* URL */
-        #articles-tab th:nth-child(5) { width: 10%; } /* Media */
-        #articles-tab th:nth-child(6) { width: 15%; } /* Status */
+        #articles-tab th:nth-child(1) { width: 5%; } /* Checkbox */
+        #articles-tab th:nth-child(2) { width: 40%; } /* Title */
+        #articles-tab th:nth-child(3) { width: 15%; } /* Source */
+        #articles-tab th:nth-child(4) { width: 12%; } /* Date */
+        #articles-tab th:nth-child(5) { width: 8%; } /* URL */
+        #articles-tab th:nth-child(6) { width: 8%; } /* Media */
+        #articles-tab th:nth-child(7) { width: 12%; } /* Status */
     </style>
 </head>
 <body class="min-h-screen" style="background-color: oklch(var(--background)); color: oklch(var(--foreground));">
@@ -384,28 +438,7 @@
                     <i class="ri-cpu-line text-lg"></i>
                     <span>Memory</span>
                 </button>
-                <button 
-                    onclick="switchTab('rss')" 
-                    class="tab-button tab-inactive px-4 py-2 text-sm font-medium rounded-md flex items-center space-x-2 transition-all duration-200"
-                    role="tab"
-                    aria-selected="false"
-                    aria-controls="rss-tab"
-                    id="rss-tab-button"
-                >
-                    <i class="ri-rss-line text-lg"></i>
-                    <span>RSS Feeds</span>
-                </button>
-                <button 
-                    onclick="switchTab('errors')" 
-                    class="tab-button tab-inactive px-4 py-2 text-sm font-medium rounded-md flex items-center space-x-2 transition-all duration-200"
-                    role="tab"
-                    aria-selected="false"
-                    aria-controls="errors-tab"
-                    id="errors-tab-button"
-                >
-                    <i class="ri-error-warning-line text-lg"></i>
-                    <span>Errors</span>
-                </button>
+                <!-- RSS Feeds and Errors tabs removed -->
             </div>
         </nav>
 
@@ -415,127 +448,56 @@
             <div id="control-tab" class="tab-content" role="tabpanel" aria-labelledby="control-tab-button">
                 <div class="space-y-6">
                     <!-- Control Panel -->
-                    <div class="card p-6">
-                        <div class="flex items-center justify-between mb-6">
+                    <div class="card p-4">
+                        <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h2 class="text-lg font-semibold" style="color: oklch(var(--foreground));">Parser Control</h2>
-                                <p class="text-sm" style="color: oklch(var(--muted-foreground));">Start, stop, and configure the AI news parsing system</p>
+                                <h2 class="text-base font-semibold" style="color: oklch(var(--foreground));">Parser Control</h2>
+                                <p class="text-xs" style="color: oklch(var(--muted-foreground));">Start, stop, and configure the AI news parsing system</p>
                             </div>
                             <div class="flex items-center space-x-2">
-                                <div class="text-sm" style="color: oklch(var(--muted-foreground));">Status:</div>
-                                <span id="parser-status" class="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">Unknown</span>
+                                <div class="text-xs" style="color: oklch(var(--muted-foreground));">Status:</div>
+                                <span id="parser-status" class="px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-800">Unknown</span>
                             </div>
                         </div>
 
                         <!-- Control Buttons -->
-                        <div class="flex flex-wrap gap-3 mb-6">
-                            <button id="rss-toggle" class="extract-btn extract-btn-primary" onclick="toggleRSS()">
-                                <i class="ri-rss-line w-4 h-4" id="rss-icon"></i>
+                        <div class="flex flex-wrap gap-2 mb-4">
+                            <button id="single-pipeline-toggle" class="extract-btn extract-btn-primary text-sm py-1.5" onclick="toggleSinglePipeline()">
+                                <i class="ri-play-line text-sm" id="single-pipeline-icon"></i>
+                                <span id="single-pipeline-text">Start Pipeline</span>
+                            </button>
+                            <button id="rss-toggle" class="extract-btn extract-btn-primary text-sm py-1.5" onclick="toggleRSS()">
+                                <i class="ri-rss-line text-sm" id="rss-icon"></i>
                                 <span id="rss-text">Start RSS</span>
-                            </button>
-                            <button id="parse-toggle" class="extract-btn extract-btn-primary" onclick="toggleParse()">
-                                <i class="ri-file-text-line w-4 h-4" id="parse-icon"></i>
-                                <span id="parse-text">Start Parse</span>
-                            </button>
-                            <button id="media-toggle" class="extract-btn extract-btn-primary" onclick="toggleMedia()">
-                                <i class="ri-image-line w-4 h-4" id="media-icon"></i>
-                                <span id="media-text">Start Media</span>
                             </button>
                         </div>
 
                         <!-- Last Parsed Configuration -->
-                        <div class="mb-6 p-4 rounded-lg" style="background-color: oklch(var(--muted));">
-                            <div class="flex items-center justify-between mb-2">
-                                <label for="last-parsed" class="text-sm font-medium" style="color: oklch(var(--foreground));">Last Parsed Date/Time</label>
-                                <button onclick="saveLastParsed()" class="btn-secondary px-3 py-1 text-sm">
-                                    <i class="ri-save-line mr-1"></i> Save
-                                </button>
-                            </div>
-                            <input 
-                                type="datetime-local" 
-                                id="last-parsed" 
-                                class="w-full px-3 py-2 rounded-md" 
-                                style="background-color: oklch(var(--background)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));"
-                            >
-                            <p class="text-xs mt-1" style="color: oklch(var(--muted-foreground));">
-                                Parser will only fetch articles newer than this timestamp
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <!-- Database Management -->
-                    <div class="card p-6 mb-6">
-                        <div class="mb-6">
-                            <h2 class="text-lg font-semibold mb-2" style="color: oklch(var(--foreground));">Database Management</h2>
-                            <p class="text-sm" style="color: oklch(var(--muted-foreground));">Clean up articles by status</p>
-                        </div>
-                        
-                        <!-- Status Statistics -->
-                        <div id="db-stats" class="grid grid-cols-3 gap-4 mb-6">
-                            <div class="p-4 rounded-lg" style="background-color: oklch(var(--muted)/0.3);">
-                                <div class="text-sm font-medium" style="color: oklch(var(--muted-foreground));">Pending</div>
-                                <div class="text-2xl font-bold" style="color: oklch(var(--foreground));" id="pending-count">-</div>
-                            </div>
-                            <div class="p-4 rounded-lg" style="background-color: oklch(var(--muted)/0.3);">
-                                <div class="text-sm font-medium" style="color: oklch(var(--muted-foreground));">Parsed</div>
-                                <div class="text-2xl font-bold" style="color: oklch(var(--foreground));" id="parsed-count">-</div>
-                            </div>
-                            <div class="p-4 rounded-lg" style="background-color: oklch(var(--muted)/0.3);">
-                                <div class="text-sm font-medium" style="color: oklch(var(--muted-foreground));">Failed</div>
-                                <div class="text-2xl font-bold" style="color: oklch(var(--foreground));" id="failed-count">-</div>
-                            </div>
-                        </div>
-                        
-                        <!-- Clean Actions -->
-                        <div class="flex items-center gap-4">
-                            <div class="flex-1">
-                                <label for="clean-status" class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">Select Status</label>
-                                <select id="clean-status" class="w-full px-3 py-2 rounded-md border" style="background-color: oklch(var(--background)); border-color: oklch(var(--border)); color: oklch(var(--foreground));">
-                                    <option value="">Choose status to clean...</option>
-                                    <option value="pending">Pending</option>
-                                    <option value="parsed">Parsed</option>
-                                    <option value="failed">Failed</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium mb-2" style="color: oklch(var(--foreground));">&nbsp;</label>
-                                <button 
-                                    onclick="cleanDatabase()" 
-                                    class="extract-btn extract-btn-destructive"
-                                    id="clean-db-btn"
-                                    disabled
-                                >
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                    Clean Database
+                        <div class="p-3 rounded-lg border" style="background-color: oklch(var(--muted)/0.3); border-color: oklch(var(--border));">
+                            <div class="flex items-center gap-3">
+                                <div class="flex-1">
+                                    <label for="last-parsed" class="text-xs font-medium mb-1 block" style="color: oklch(var(--muted-foreground));">Last Parsed Date/Time</label>
+                                    <input 
+                                        type="datetime-local" 
+                                        id="last-parsed" 
+                                        class="w-full px-2 py-1 text-sm rounded" 
+                                        style="background-color: oklch(var(--background)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));"
+                                    >
+                                    <p class="text-xs mt-1" style="color: oklch(var(--muted-foreground)); opacity: 0.8;">
+                                        Parser will only fetch articles newer than this timestamp
+                                    </p>
+                                </div>
+                                <button onclick="saveLastParsed()" class="btn-secondary px-3 py-1.5 text-xs self-start mt-5">
+                                    <i class="ri-save-line text-xs mr-1"></i> Save
                                 </button>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Real-time Logs -->
-                    <div class="card p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold" style="color: oklch(var(--foreground));">Real-time Logs</h3>
-                            <div class="flex items-center space-x-2">
-                                <select id="log-level-filter" class="px-3 py-1 text-sm rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));" onchange="filterLogs()">
-                                    <option value="all">All Levels</option>
-                                    <option value="info">INFO</option>
-                                    <option value="warning">WARNING</option>
-                                    <option value="error">ERROR</option>
-                                </select>
-                                <button onclick="clearLogs()" class="btn-secondary px-3 py-1 text-sm">
-                                    <i class="ri-delete-bin-line"></i> Clear
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div id="log-container" class="rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm" style="background-color: #0a0a0a; color: #00ff00;">
-                            <div class="text-gray-400 text-center py-8">
-                                <i class="ri-terminal-line text-2xl mb-2"></i>
-                                <p>Logs will appear here when Extract system is running...</p>
-                            </div>
+                    <!-- Pipeline Activity Monitor -->
+                    <div class="card p-4">
+                        <div id="pipeline-logs-container">
+                            <!-- Pipeline logs will be inserted here by pipeline-logs.js -->
                         </div>
                     </div>
                 </div>
@@ -545,40 +507,94 @@
             <div id="articles-tab" class="tab-content hidden" role="tabpanel" aria-labelledby="articles-tab-button">
                 <div class="space-y-6">
                     
-                    <!-- Search and Filters -->
+                    <!-- Database Management -->
                     <div class="card p-4">
-                        <div class="flex flex-wrap gap-4">
-                            <div class="flex-1 min-w-[200px]">
-                                <input type="text" id="article-search" placeholder="Search articles..." 
-                                       class="w-full px-3 py-2 rounded-md border"
-                                       style="background-color: oklch(var(--background)); border-color: oklch(var(--border)); color: oklch(var(--foreground));">
+                        <div class="mb-3">
+                            <h2 class="text-base font-semibold" style="color: oklch(var(--foreground));">Database Management</h2>
+                            <p class="text-xs" style="color: oklch(var(--muted-foreground));">Clean up articles by status</p>
+                        </div>
+                        
+                        <!-- Status Statistics -->
+                        <div id="db-stats-articles" class="grid grid-cols-4 gap-2 mb-3">
+                            <div class="p-2 rounded border" style="background-color: oklch(var(--muted)/0.2); border-color: oklch(var(--border));">
+                                <div class="text-xs font-medium" style="color: oklch(var(--muted-foreground));">Pending</div>
+                                <div class="text-lg font-bold" style="color: oklch(var(--foreground));" id="pending-count-articles">-</div>
                             </div>
-                            <div class="w-48">
-                                <select id="source-filter" class="w-full px-3 py-2 rounded-md border"
-                                        style="background-color: oklch(var(--background)); border-color: oklch(var(--border)); color: oklch(var(--foreground));">
-                                    <option value="">All Sources</option>
+                            <div class="p-2 rounded border" style="background-color: oklch(var(--muted)/0.2); border-color: oklch(var(--border));">
+                                <div class="text-xs font-medium" style="color: oklch(var(--muted-foreground));">Parsed</div>
+                                <div class="text-lg font-bold" style="color: oklch(var(--foreground));" id="parsed-count-articles">-</div>
+                            </div>
+                            <div class="p-2 rounded border" style="background-color: oklch(var(--muted)/0.2); border-color: oklch(var(--border));">
+                                <div class="text-xs font-medium" style="color: oklch(var(--muted-foreground));">Published</div>
+                                <div class="text-lg font-bold" style="color: oklch(var(--foreground));" id="published-count-articles">-</div>
+                            </div>
+                            <div class="p-2 rounded border" style="background-color: oklch(var(--muted)/0.2); border-color: oklch(var(--border));">
+                                <div class="text-xs font-medium" style="color: oklch(var(--muted-foreground));">Failed</div>
+                                <div class="text-lg font-bold text-red-600" id="failed-count-articles">-</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Clean Actions -->
+                        <div class="flex items-center gap-2">
+                            <div class="flex-1">
+                                <label for="clean-status-articles" class="block text-xs font-medium mb-1" style="color: oklch(var(--muted-foreground));">Select Status to Clean</label>
+                                <select id="clean-status-articles" class="w-full px-2 py-1 text-sm rounded border" style="background-color: oklch(var(--background)); border-color: oklch(var(--border)); color: oklch(var(--foreground));">
+                                    <option value="">Choose status...</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="parsed">Parsed</option>
+                                    <option value="published">Published</option>
+                                    <option value="failed">Failed</option>
                                 </select>
                             </div>
-                            <div class="w-48">
-                                <select id="date-filter" class="w-full px-3 py-2 rounded-md border"
-                                        style="background-color: oklch(var(--background)); border-color: oklch(var(--border)); color: oklch(var(--foreground));">
-                                    <option value="">All Dates</option>
-                                    <option value="24h">Last 24 hours</option>
-                                    <option value="7d">Last 7 days</option>
-                                    <option value="30d">Last 30 days</option>
-                                </select>
+                            <div class="pt-4">
+                                <button 
+                                    onclick="cleanDatabaseArticles()" 
+                                    class="extract-btn extract-btn-destructive text-sm py-1"
+                                    id="clean-db-btn-articles"
+                                    disabled
+                                >
+                                    <i class="ri-delete-bin-line text-sm"></i>
+                                    Clean
+                                </button>
                             </div>
                         </div>
                     </div>
-
+                    
+                    <!-- Batch Operations Panel -->
+                    <div id="batch-operations-panel" class="card p-4 mb-4 hidden" style="background-color: #eff6ff; border-color: #3b82f6;">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-4">
+                                <span id="selection-count" class="text-sm text-gray-700">0 articles selected</span>
+                                <button onclick="selectAllVisible()" class="text-sm text-blue-600 hover:text-blue-800">
+                                    Select all on page
+                                </button>
+                                <button onclick="clearSelection()" class="text-sm text-gray-600 hover:text-gray-800">
+                                    Clear selection
+                                </button>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="bulkDeleteSelected()" 
+                                        class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" 
+                                        id="bulk-delete-btn" disabled>
+                                    <i class="ri-delete-bin-line mr-1"></i>
+                                    Delete selected
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <!-- Articles Table -->
-                    <div class="card p-0 overflow-hidden">
+                    <div class="card p-0 overflow-hidden table-container">
                         <div class="overflow-x-auto">
-                            <table class="w-full table-auto">
+                            <table class="w-full table-fixed">
                                 <thead style="background-color: oklch(var(--muted));">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-sm font-medium w-2/5" style="color: oklch(var(--muted-foreground));">Title</th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium relative w-1/6" style="color: oklch(var(--muted-foreground));">
+                                        <th class="py-3 px-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                                            <input type="checkbox" id="select-all-articles" 
+                                                   onchange="toggleAllArticles()" 
+                                                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        </th>
+                                        <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground)); width: 45%;">Title</th>
+                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 18%;">
                                             <div class="flex items-center justify-between">
                                                 <span>Source</span>
                                                 <button id="source-filter-btn" onclick="toggleSourceFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
@@ -586,7 +602,7 @@
                                                 </button>
                                             </div>
                                             <!-- Source Filter Dropdown -->
-                                            <div id="source-filter-dropdown" class="absolute top-full left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-50 hidden">
+                                            <div id="source-filter-dropdown" class="filter-dropdown absolute top-full left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-50 hidden">
                                                 <div class="p-2 border-b">
                                                     <input type="text" id="source-search" placeholder="Search sources..." class="w-full px-2 py-1 text-sm border rounded">
                                                 </div>
@@ -595,7 +611,7 @@
                                                 </div>
                                             </div>
                                         </th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium relative w-1/6" style="color: oklch(var(--muted-foreground));">
+                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 15%;">
                                             <div class="flex items-center justify-between">
                                                 <span>Date</span>
                                                 <button id="date-filter-btn" onclick="toggleDateFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
@@ -603,15 +619,13 @@
                                                 </button>
                                             </div>
                                             <!-- Date Filter Dropdown -->
-                                            <div id="date-filter-dropdown" class="absolute top-full left-0 mt-1 w-48 bg-white border rounded-lg shadow-lg z-50 hidden">
+                                            <div id="date-filter-dropdown" class="filter-dropdown absolute top-full right-0 mt-1 w-48 bg-white border rounded-lg shadow-lg z-50 hidden">
                                                 <div class="max-h-48 overflow-y-auto" id="date-filter-options">
                                                     <div class="p-2 text-sm text-gray-500">Loading dates...</div>
                                                 </div>
                                             </div>
                                         </th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium w-16" style="color: oklch(var(--muted-foreground));">URL</th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium w-20" style="color: oklch(var(--muted-foreground));">Media</th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium relative w-1/6" style="color: oklch(var(--muted-foreground));">
+                                        <th class="px-4 py-3 text-center text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 12%;">
                                             <div class="flex items-center justify-between">
                                                 <span>Status</span>
                                                 <button id="status-filter-btn" onclick="toggleStatusFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
@@ -619,18 +633,18 @@
                                                 </button>
                                             </div>
                                             <!-- Status Filter Dropdown -->
-                                            <div id="status-filter-dropdown" class="absolute top-full left-0 mt-1 w-48 bg-white border rounded-lg shadow-lg z-50 hidden">
+                                            <div id="status-filter-dropdown" class="filter-dropdown absolute top-full right-0 mt-1 w-48 bg-white border rounded-lg shadow-lg z-50 hidden">
                                                 <div class="max-h-48 overflow-y-auto" id="status-filter-options">
                                                     <div class="p-2 text-sm text-gray-500">Loading statuses...</div>
                                                 </div>
                                             </div>
                                         </th>
-                                        <th class="px-4 py-3 text-center text-sm font-medium w-16" style="color: oklch(var(--muted-foreground));">Actions</th>
+                                        <th class="px-4 py-3 text-center text-sm font-medium" style="color: oklch(var(--muted-foreground)); width: 10%;">Result</th>
                                     </tr>
                                 </thead>
                                 <tbody id="articles-table-body" class="divide-y" style="border-color: oklch(var(--border));">
                                     <tr>
-                                        <td colspan="7" class="px-4 py-8 text-center text-sm" style="color: oklch(var(--muted-foreground));">Loading articles...</td>
+                                        <td colspan="6" class="px-4 py-8 text-center text-sm" style="color: oklch(var(--muted-foreground));">Loading articles...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -689,6 +703,23 @@
                         </div>
                     </div>
                     
+                    <!-- Database Control -->
+                    <div class="card p-4 mb-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-base font-semibold" style="color: oklch(var(--foreground));">Database Connection</h3>
+                                <p class="text-sm mt-1" style="color: oklch(var(--muted-foreground));">Initialize database connections if experiencing errors</p>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <span id="db-status" class="text-sm px-2 py-1 rounded-full bg-gray-100 text-gray-700">Unknown</span>
+                                <button id="init-db-btn" class="btn-primary px-4 py-2 text-sm flex items-center space-x-2" onclick="initializeDatabase()">
+                                    <i class="ri-database-2-line"></i>
+                                    <span>Initialize Database</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Resource Alerts -->
                     <div id="resource-alerts" class="card p-4 mb-4" style="display: none; background-color: oklch(var(--destructive)/0.1); border-color: oklch(var(--destructive));">
                         <div class="flex items-start">
@@ -717,7 +748,7 @@
                                         <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground));">Process Name</th>
                                         <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground));">Memory</th>
                                         <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground));">CPU</th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground));">Actions</th>
+                                        <th class="px-4 py-3 text-center text-sm font-medium" style="color: oklch(var(--muted-foreground)); width: 12%;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="processes-table-body" class="divide-y" style="border-color: oklch(var(--border));">
@@ -733,126 +764,7 @@
 
             <!-- RSS Tab -->
             <div id="rss-tab" class="tab-content hidden" role="tabpanel" aria-labelledby="rss-tab-button">
-                <div class="space-y-6">
-                    <!-- RSS Summary -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--primary));" id="total-rss-feeds">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Total RSS Feeds</div>
-                        </div>
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--destructive));" id="error-rss-feeds">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Error Feeds</div>
-                        </div>
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--primary));" id="avg-fetch-time">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Avg Fetch Time (ms)</div>
-                        </div>
-                    </div>
-
-                    <!-- RSS Feeds List -->
-                    <div class="card">
-                        <div class="p-6">
-                            <div class="overflow-x-auto">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr class="border-b" style="border-color: oklch(var(--border));">
-                                            <th class="text-left py-3 px-4 font-medium" style="color: oklch(var(--muted-foreground));">Source</th>
-                                            <th class="text-left py-3 px-4 font-medium" style="color: oklch(var(--muted-foreground));">Articles</th>
-                                            <th class="text-left py-3 px-4 font-medium" style="color: oklch(var(--muted-foreground));">Errors</th>
-                                            <th class="text-left py-3 px-4 font-medium" style="color: oklch(var(--muted-foreground));">Efficiency</th>
-                                            <th class="text-left py-3 px-4 font-medium" style="color: oklch(var(--muted-foreground));">Fetch Time</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="rss-feeds-table">
-                                        <tr>
-                                            <td colspan="5" class="text-center py-8" style="color: oklch(var(--muted-foreground));">
-                                                Loading RSS feeds...
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Errors Tab -->
-            <div id="errors-tab" class="tab-content hidden" role="tabpanel" aria-labelledby="errors-tab-button">
-                <div class="space-y-6">
-                    <!-- Error Summary -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--destructive));" id="total-errors">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Total Errors (24h)</div>
-                        </div>
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--foreground));" id="error-sources-count">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Sources with Errors</div>
-                        </div>
-                        <div class="card p-6 text-center">
-                            <div class="text-3xl font-bold" style="color: oklch(var(--foreground));" id="last-error-time">-</div>
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));">Last Error</div>
-                        </div>
-                    </div>
-
-                    <!-- Error List -->
-                    <!-- Error Filters -->
-                    <div class="card p-4">
-                        <div class="flex flex-wrap gap-3">
-                            <select id="error-type-filter" class="px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                <option value="">All Error Types</option>
-                                <option value="ERROR">ERROR</option>
-                                <option value="CRITICAL">CRITICAL</option>
-                                <option value="WARNING">WARNING</option>
-                            </select>
-                            <select id="error-source-filter" class="px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                <option value="">All Sources</option>
-                            </select>
-                            <select id="error-time-filter" class="px-3 py-2 rounded-md" style="background-color: oklch(var(--input)); border: 1px solid oklch(var(--border)); color: oklch(var(--foreground));">
-                                <option value="24h">Last 24 hours</option>
-                                <option value="7d">Last 7 days</option>
-                                <option value="30d">Last 30 days</option>
-                            </select>
-                            <button onclick="refreshErrorFilters()" class="btn-secondary px-3 py-2 text-sm">
-                                <i class="ri-refresh-line"></i> Refresh
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Error List -->
-                    <div class="card p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold" style="color: oklch(var(--foreground));">Recent Errors</h3>
-                            <div class="flex space-x-2">
-                                <button class="btn-secondary px-4 py-2 text-sm flex items-center space-x-2" onclick="exportErrorsAsText()">
-                                    <i class="ri-download-line"></i>
-                                    <span>Export as Text</span>
-                                </button>
-                                <button class="btn-primary px-4 py-2 text-sm flex items-center space-x-2" onclick="copyAllErrorsForDebug()">
-                                    <i class="ri-file-copy-line"></i>
-                                    <span>Copy All for Debug</span>
-                                </button>
-                                <button class="btn-secondary px-4 py-2 text-sm flex items-center space-x-2" onclick="clearErrorsList()">
-                                    <i class="ri-delete-bin-line"></i>
-                                    <span>Clear List</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div id="errors-list" class="space-y-3">
-                            <div class="text-center py-8 text-sm" style="color: oklch(var(--muted-foreground));">Loading errors...</div>
-                        </div>
-                        <div id="errors-pagination" class="mt-4 flex justify-between items-center" style="display: none;">
-                            <div class="text-sm" style="color: oklch(var(--muted-foreground));" id="errors-info">Showing 0 of 0 errors</div>
-                            <div class="flex space-x-2">
-                                <button onclick="loadErrorsPage('prev')" class="btn-secondary px-3 py-1 text-sm" id="prev-errors">Previous</button>
-                                <button onclick="loadErrorsPage('next')" class="btn-secondary px-3 py-1 text-sm" id="next-errors">Next</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- RSS and Errors tabs removed -->
         </div>
     </main>
 
@@ -916,6 +828,7 @@
                 case 'articles':
                     // Всегда загружаем свежие данные
                     loadArticlesData();
+                    loadDatabaseStatsArticles();
                     break;
                 case 'memory':
                     loadMemoryData();
@@ -944,6 +857,9 @@
         let totalPages = 1;
         let totalArticles = 0;
         
+        // Global selection state
+        let selectedArticles = new Set();
+        
         // Global filter state
         let activeFilters = {
             source: null,
@@ -955,8 +871,11 @@
             console.log('Loading articles data...');
             const tbody = document.getElementById('articles-table-body');
             
+            // Clear selection when loading new data
+            clearSelection();
+            
             // Show loading state
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8"><div class="flex items-center justify-center"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3"></div>Loading articles...</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8"><div class="flex items-center justify-center"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3"></div>Loading articles...</div></td></tr>';
             
             try {
                 // Build query parameters with filters
@@ -976,15 +895,21 @@
                 const data = await response.json();
                 
                 // Update pagination state
-                currentPage = data.page || page;
-                totalPages = data.total_pages || 1;
-                totalArticles = data.total || 0;
+                currentPage = data.pagination?.page || data.page || page;
+                totalPages = data.pagination?.total_pages || data.total_pages || 1;
+                totalArticles = data.pagination?.total || data.total || 0;
                 
                 if (data.articles && data.articles.length > 0) {
                     tbody.innerHTML = data.articles.map(article => `
-                        <tr class="border-b hover:bg-slate-50">
-                            <td class="py-3 px-4 cursor-pointer" onclick="viewArticle('${article.article_id}')">
-                                <div class="font-medium text-blue-600 hover:text-blue-800">${escapeHtml(article.title || 'No title')}</div>
+                        <tr class="border-b hover:bg-slate-50 article-row">
+                            <td class="py-3 px-2 text-center">
+                                <input type="checkbox" 
+                                       class="article-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                                       value="${article.article_id}" 
+                                       onchange="updateSelectionCount()">
+                            </td>
+                            <td class="py-3 px-4">
+                                <a href="${article.url || '#'}" target="_blank" class="font-medium text-blue-600 hover:text-blue-800 hover:underline">${sanitizeTitle(article.title || 'No title')}</a>
                             </td>
                             <td class="py-3 px-4 text-sm cursor-pointer hover:bg-blue-50" onclick="filterBySource('${article.source_id || ''}', '${escapeHtml(article.source_name || 'Unknown')}')" title="Click to filter by this source">
                                 ${escapeHtml(article.source_name || 'Unknown')}
@@ -992,38 +917,31 @@
                             <td class="py-3 px-4 text-sm cursor-pointer hover:bg-blue-50" onclick="filterByDate('${new Date(article.created_at || article.published_date).toISOString().split('T')[0]}')" title="Click to filter by this date">
                                 ${new Date(article.created_at || article.published_date).toLocaleDateString()}
                             </td>
-                            <td class="py-3 px-4 text-sm">
-                                ${article.url ? `<a href="${article.url}" target="_blank" class="text-blue-500 hover:underline" onclick="event.stopPropagation()"><i class="ri-external-link-line"></i></a>` : '-'}
-                            </td>
-                            <td class="py-3 px-4 text-sm">
-                                ${article.media_count && article.media_count > 0 ? 
-                                    `<button class="inline-flex items-center text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded cursor-pointer transition-colors" 
-                                            onclick="event.stopPropagation(); viewArticleMedia('${article.article_id}')">
-                                        <i class="ri-image-line text-blue-500"></i>
-                                        <span class="ml-1 font-medium">${article.media_count}</span>
-                                    </button>` : 
-                                    '<span class="text-gray-400">-</span>'
-                                }
-                            </td>
-                            <td class="py-3 px-4 cursor-pointer hover:bg-blue-50" onclick="filterByStatus('${article.content_status}')" title="Click to filter by this status">
+                            <td class="py-3 px-4 cursor-pointer hover:bg-blue-50" onclick="filterByStatus('${article.status}')" title="Click to filter by this status">
                                 <span class="px-2 py-1 text-xs rounded-full ${
-                                    article.content_status === 'parsed' ? 'bg-green-100 text-green-800' : 
-                                    article.content_status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                    article.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                                    article.status === 'published' ? 'bg-green-100 text-green-800' : 
+                                    article.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                    article.status === 'parsed' ? 'bg-gray-100 text-gray-800' : 
                                     'bg-gray-100 text-gray-800'
-                                }">${article.content_status === 'parsed' ? 'Parsed' : (article.content_status === 'pending' ? 'Pending' : (article.content_status === 'failed' ? 'Failed' : (article.content_status === 'published' ? 'Published' : (article.content_status || 'Unknown'))))}</span>
+                                }">${article.status || 'unknown'}</span>
                             </td>
                             <td class="py-3 px-4 text-center">
-                                <button class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors" 
-                                        onclick="event.stopPropagation(); deleteArticle('${article.article_id}', '${escapeHtml(article.title || 'No title')}')"
-                                        title="Delete article">
-                                    <i class="ri-close-line text-lg"></i>
-                                </button>
+                                ${article.wp_post_id ? 
+                                    `<a href="https://ailynx.ru/?p=${article.wp_post_id}" 
+                                        target="_blank" 
+                                        class="text-green-600 hover:text-green-800" 
+                                        title="Опубликовано на сайте">
+                                        <i class="ri-checkbox-circle-fill text-lg"></i>
+                                    </a>` : 
+                                    '<span class="text-gray-300"><i class="ri-checkbox-blank-circle-line"></i></span>'
+                                }
                             </td>
                         </tr>
                     `).join('');
                     
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">No articles found</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">No articles found</td></tr>';
                 }
                 
                 // Update pagination controls
@@ -1031,17 +949,17 @@
                 
             } catch (error) {
                 console.error('Error loading articles:', error);
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-500">Error loading articles. Please try again.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-500">Error loading articles. Please try again.</td></tr>';
             }
         }
         
         function updatePaginationControls() {
             // Update pagination info
-            const startItem = (currentPage - 1) * 50 + 1;
+            const startItem = totalArticles > 0 ? (currentPage - 1) * 50 + 1 : 0;
             const endItem = Math.min(currentPage * 50, totalArticles);
             
             document.getElementById('articles-pagination-info').textContent = 
-                `Showing ${startItem}-${endItem} of ${totalArticles} articles`;
+                totalArticles > 0 ? `Showing ${startItem}-${endItem} of ${totalArticles} articles` : 'Showing 0 of 0 articles';
             
             document.getElementById('articles-page-info').textContent = 
                 `Page ${currentPage} of ${totalPages}`;
@@ -1086,6 +1004,24 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        
+        function sanitizeTitle(text) {
+            if (!text) return '';
+            // Сначала экранируем весь HTML для безопасности
+            const div = document.createElement('div');
+            div.textContent = text;
+            let escaped = div.innerHTML;
+            
+            // Затем разрешаем только безопасные теги форматирования
+            escaped = escaped.replace(/&lt;b&gt;/g, '<b>');
+            escaped = escaped.replace(/&lt;\/b&gt;/g, '</b>');
+            escaped = escaped.replace(/&lt;strong&gt;/g, '<strong>');
+            escaped = escaped.replace(/&lt;\/strong&gt;/g, '</strong>');
+            escaped = escaped.replace(/&lt;em&gt;/g, '<em>');
+            escaped = escaped.replace(/&lt;\/em&gt;/g, '</em>');
+            
+            return escaped;
         }
         
         // Make viewArticle globally available
@@ -1134,6 +1070,133 @@
                 showNotification(`Error deleting article: ${error.message}`, 'error');
             }
         }
+
+        // Toggle all articles selection
+        function toggleAllArticles() {
+            const selectAllCheckbox = document.getElementById('select-all-articles');
+            const articleCheckboxes = document.querySelectorAll('.article-checkbox');
+            
+            articleCheckboxes.forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+                if (selectAllCheckbox.checked) {
+                    selectedArticles.add(checkbox.value);
+                } else {
+                    selectedArticles.delete(checkbox.value);
+                }
+            });
+            
+            updateSelectionCount();
+        }
+
+        // Select all visible articles
+        function selectAllVisible() {
+            const articleCheckboxes = document.querySelectorAll('.article-checkbox');
+            const selectAllCheckbox = document.getElementById('select-all-articles');
+            
+            articleCheckboxes.forEach(checkbox => {
+                checkbox.checked = true;
+                selectedArticles.add(checkbox.value);
+            });
+            
+            selectAllCheckbox.checked = true;
+            updateSelectionCount();
+        }
+
+        // Clear all selections
+        function clearSelection() {
+            selectedArticles.clear();
+            document.querySelectorAll('.article-checkbox').forEach(cb => cb.checked = false);
+            document.getElementById('select-all-articles').checked = false;
+            updateSelectionCount();
+        }
+
+        // Update selection count and panel visibility
+        function updateSelectionCount() {
+            const checkbox = event?.target;
+            if (checkbox && checkbox.classList.contains('article-checkbox')) {
+                if (checkbox.checked) {
+                    selectedArticles.add(checkbox.value);
+                } else {
+                    selectedArticles.delete(checkbox.value);
+                }
+            }
+            
+            const count = selectedArticles.size;
+            const countElement = document.getElementById('selection-count');
+            const panel = document.getElementById('batch-operations-panel');
+            const deleteBtn = document.getElementById('bulk-delete-btn');
+            
+            countElement.textContent = `${count} article${count !== 1 ? 's' : ''} selected`;
+            
+            if (count > 0) {
+                panel.classList.remove('hidden');
+                deleteBtn.disabled = false;
+            } else {
+                panel.classList.add('hidden');
+                deleteBtn.disabled = true;
+            }
+        }
+
+        // Bulk delete selected articles
+        async function bulkDeleteSelected() {
+            if (selectedArticles.size === 0) return;
+            
+            const count = selectedArticles.size;
+            let confirmMessage = `Are you sure you want to delete ${count} article${count !== 1 ? 's' : ''}?`;
+            
+            if (count > 20) {
+                confirmMessage += '\n\n⚠️ This is a large batch operation and cannot be undone!';
+            }
+            
+            if (!confirm(confirmMessage)) return;
+            
+            const deleteBtn = document.getElementById('bulk-delete-btn');
+            const originalText = deleteBtn.innerHTML;
+            
+            try {
+                // Show progress
+                deleteBtn.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Deleting...';
+                deleteBtn.disabled = true;
+                
+                // Send bulk delete request
+                const response = await fetch('/api/articles/bulk', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        article_ids: Array.from(selectedArticles)
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // Show results
+                if (result.deleted > 0) {
+                    showNotification(`Successfully deleted ${result.deleted} article${result.deleted !== 1 ? 's' : ''}`, 'success');
+                }
+                
+                if (result.failed && result.failed.length > 0) {
+                    showNotification(`${result.failed.length} article${result.failed.length !== 1 ? 's' : ''} could not be deleted`, 'error');
+                }
+                
+                // Clear selection and refresh table
+                clearSelection();
+                await loadArticlesData(currentPage);
+                
+            } catch (error) {
+                console.error('Error in bulk delete:', error);
+                showNotification(`Error deleting articles: ${error.message}`, 'error');
+                
+                // Restore button
+                deleteBtn.innerHTML = originalText;
+                deleteBtn.disabled = selectedArticles.size === 0;
+            }
+        }
         
         function showNotification(message, type = 'info') {
             // Create notification element
@@ -1170,7 +1233,7 @@
                         <div class="p-6 border-b">
                             <div class="flex justify-between items-start">
                                 <div class="flex-1 mr-4">
-                                    <h2 class="text-xl font-bold mb-2">${escapeHtml(article.title || 'No title')}</h2>
+                                    <h2 class="text-xl font-bold mb-2">${sanitizeTitle(article.title || 'No title')}</h2>
                                     <div class="text-sm text-gray-500">
                                         <span>${escapeHtml(article.source_name || 'Unknown source')}</span> • 
                                         <span>${new Date(article.created_at || article.published_date).toLocaleDateString()}</span>
@@ -1199,8 +1262,10 @@
                                                         ${media.type || 'unknown'}
                                                     </span>
                                                     <span class="px-2 py-1 text-xs rounded ${
-                                                        media.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                                                        media.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                                                        media.status === 'published' ? 'bg-green-100 text-green-800' : 
                                                         media.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                                        media.status === 'parsed' ? 'bg-gray-100 text-gray-800' : 
                                                         'bg-gray-100 text-gray-800'
                                                     }">${media.status || 'unknown'}</span>
                                                 </div>
@@ -1372,25 +1437,34 @@
                 </div>`;
                 
                 // Add predefined ranges
-                data.predefined_ranges.forEach(range => {
+                const predefinedRanges = [
+                    { value: 'today', label: 'Today' },
+                    { value: 'yesterday', label: 'Yesterday' },
+                    { value: 'last7days', label: 'Last 7 days' },
+                    { value: 'last30days', label: 'Last 30 days' }
+                ];
+                
+                html += '<div class="border-t mt-2 pt-2"><div class="px-2 text-xs text-gray-500 font-medium">Quick filters:</div></div>';
+                predefinedRanges.forEach(range => {
                     html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm" onclick="selectDateFilter('${range.value}', '${range.label}')">
                         <div class="font-medium">${range.label}</div>
                     </div>`;
                 });
                 
-                // Add recent specific dates
-                if (data.recent_dates && data.recent_dates.length > 0) {
-                    html += '<div class="border-t mt-2 pt-2"><div class="px-2 text-xs text-gray-500 font-medium">Recent dates:</div></div>';
-                    data.recent_dates.slice(0, 10).forEach(date => {
-                        html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm" onclick="selectDateFilter('${date.value}', '${date.label}')">
-                            <div class="font-medium">${date.label}</div>
-                            <div class="text-gray-500 text-xs">${date.count} articles</div>
+                // Add actual dates from API
+                if (data.dates && data.dates.length > 0) {
+                    html += '<div class="border-t mt-2 pt-2"><div class="px-2 text-xs text-gray-500 font-medium">Available dates:</div></div>';
+                    data.dates.slice(0, 10).forEach(date => {
+                        html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm" onclick="selectDateFilter('${date.date}', '${date.display_name}')">
+                            <div class="font-medium">${date.date}</div>
+                            <div class="text-gray-500 text-xs">${date.article_count} articles</div>
                         </div>`;
                     });
                 }
                 
                 container.innerHTML = html;
             } catch (error) {
+                console.error('Error loading dates:', error);
                 container.innerHTML = '<div class="p-2 text-sm text-red-500">Error loading dates</div>';
             }
         }
@@ -1546,34 +1620,65 @@
             isLoadingMemoryData = true;
             
             console.log('Loading memory data...');
+            
+            // Check database status first
+            try {
+                const dbStatusResponse = await fetch('/api/db/status');
+                if (dbStatusResponse.ok) {
+                    const dbStatus = await dbStatusResponse.json();
+                    const statusEl = document.getElementById('db-status');
+                    if (statusEl) {
+                        if (dbStatus.status === 'connected') {
+                            statusEl.textContent = 'Connected';
+                            statusEl.className = 'text-sm px-2 py-1 rounded-full bg-green-100 text-green-700';
+                        } else if (dbStatus.status === 'partial') {
+                            statusEl.textContent = 'Partial';
+                            statusEl.className = 'text-sm px-2 py-1 rounded-full bg-yellow-100 text-yellow-700';
+                        } else if (dbStatus.status === 'disconnected') {
+                            statusEl.textContent = 'Disconnected';
+                            statusEl.className = 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
+                        } else {
+                            statusEl.textContent = 'Unknown';
+                            statusEl.className = 'text-sm px-2 py-1 rounded-full bg-gray-100 text-gray-700';
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking database status:', error);
+            }
+            
             try {
                 const response = await fetch('/api/memory/current');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 
                 const data = await response.json();
                 
-                // Update CPU usage
-                const cpuElement = document.getElementById('cpu-usage');
-                if (cpuElement) {
-                    cpuElement.textContent = `${data.cpu_percent || 0}%`;
-                    // Update progress bar
-                    const cpuProgress = document.getElementById('cpu-progress');
-                    if (cpuProgress) cpuProgress.style.width = `${data.cpu_percent || 0}%`;
-                }
+                // Update CPU usage (will be updated below with AI News processes CPU)
                 
-                // Load process list to calculate AI News memory usage
+                // Load process list to calculate AI News memory and CPU usage
                 const processesResponse = await fetch('/api/memory/processes');
                 let aiNewsMemoryMB = 0;
                 let aiNewsProcessCount = 0;
+                let aiNewsCpuPercent = 0;
                 
                 let processesData = null;
                 if (processesResponse.ok) {
                     processesData = await processesResponse.json();
                     const aiNewsProcesses = processesData.processes || [];
                     
-                    // Calculate total memory used by AI News processes
+                    // Calculate total memory and CPU used by AI News processes
                     aiNewsMemoryMB = aiNewsProcesses.reduce((sum, proc) => sum + (proc.memory_mb || 0), 0);
+                    aiNewsCpuPercent = aiNewsProcesses.reduce((sum, proc) => sum + (proc.cpu_percent || 0), 0);
                     aiNewsProcessCount = aiNewsProcesses.length;
+                }
+                
+                // Update CPU usage (AI News processes only)
+                const cpuElement = document.getElementById('cpu-usage');
+                if (cpuElement) {
+                    cpuElement.textContent = `${aiNewsCpuPercent.toFixed(1)}%`;
+                    // Update progress bar - limit to 100% max for display
+                    const cpuProgress = document.getElementById('cpu-progress');
+                    if (cpuProgress) cpuProgress.style.width = `${Math.min(aiNewsCpuPercent, 100)}%`;
                 }
                 
                 // Update Memory usage (AI News system memory in MB, not PC %)
@@ -1620,6 +1725,7 @@
                                     'crawler': 'bg-orange-100 text-orange-800',
                                     'python': 'bg-yellow-100 text-yellow-800',
                                     'node': 'bg-emerald-100 text-emerald-800',
+                                    'mcp-server': 'bg-teal-100 text-teal-800',
                                     'shell': 'bg-gray-100 text-gray-800',
                                     'unknown': 'bg-red-100 text-red-800'
                                 };
@@ -1631,6 +1737,7 @@
                                     'crawler': '🕷️',
                                     'python': '🐍',
                                     'node': '🟢',
+                                    'mcp-server': '🔌',
                                     'shell': '🛠️',
                                     'unknown': '❓'
                                 };
@@ -1764,12 +1871,18 @@
             }
         }
 
-        // Extract system state
-        let extractState = {
-            rss: false,
-            parse: false,
-            media: false
-        };
+        // Extract system state (persist in sessionStorage)
+        let extractState = JSON.parse(sessionStorage.getItem('extractState') || '{"rss": false, "singlePipeline": false}');
+        
+        // Grace period tracking for button state changes
+        let pipelineStartupGrace = null;
+        let rssStartupGrace = null;
+        const STARTUP_GRACE_PERIOD = 15000; // 15 seconds grace period for process startup
+        
+        // Save state on change
+        function saveExtractState() {
+            sessionStorage.setItem('extractState', JSON.stringify(extractState));
+        }
 
         // Function to update button states based on actual process status
         async function updateExtractButtonStates() {
@@ -1783,56 +1896,61 @@
                     const rssIcon = document.getElementById('rss-icon');
                     const rssText = document.getElementById('rss-text');
                     
-                    if (status.rss && status.rss.running) {
-                        extractState.rss = true;
-                        rssButton.className = "extract-btn extract-btn-destructive";
-                        rssIcon.classList.add('animate-pulse');
-                        rssText.textContent = 'Stop RSS';
-                    } else {
-                        extractState.rss = false;
-                        rssButton.className = "extract-btn extract-btn-primary";
-                        rssIcon.classList.remove('animate-pulse');
-                        rssText.textContent = 'Start RSS';
+                    // Check if we're within the grace period for RSS
+                    const now = Date.now();
+                    const inRssGracePeriod = rssStartupGrace && (now - rssStartupGrace < STARTUP_GRACE_PERIOD);
+                    
+                    // Only update RSS button if not in grace period
+                    if (!inRssGracePeriod) {
+                        // Check rss_discovery status (not status.rss)
+                        if (status.rss_discovery === 'running') {
+                            extractState.rss = true;
+                            rssButton.className = "extract-btn extract-btn-destructive";
+                            rssIcon.classList.add('animate-pulse');
+                            rssText.textContent = 'Stop RSS';
+                        } else {
+                            extractState.rss = false;
+                            rssButton.className = "extract-btn extract-btn-primary";
+                            rssIcon.classList.remove('animate-pulse');
+                            rssText.textContent = 'Start RSS';
+                            // Clear grace period if process stopped
+                            rssStartupGrace = null;
+                        }
                     }
                     
-                    // Update Parse button
-                    const parseButton = document.getElementById('parse-toggle');
-                    const parseIcon = document.getElementById('parse-icon');
-                    const parseText = document.getElementById('parse-text');
+                    // Update Single Pipeline button
+                    const spButton = document.getElementById('single-pipeline-toggle');
+                    const spIcon = document.getElementById('single-pipeline-icon');
+                    const spText = document.getElementById('single-pipeline-text');
                     
-                    if (status.parse && status.parse.running) {
-                        extractState.parse = true;
-                        parseButton.className = "extract-btn extract-btn-destructive";
-                        parseIcon.classList.add('animate-pulse');
-                        parseText.textContent = 'Stop Parse';
-                    } else {
-                        extractState.parse = false;
-                        parseButton.className = "extract-btn extract-btn-primary";
-                        parseIcon.classList.remove('animate-pulse');
-                        parseText.textContent = 'Start Parse';
+                    // Check if we're within the grace period for Pipeline
+                    const inPipelineGracePeriod = pipelineStartupGrace && (now - pipelineStartupGrace < STARTUP_GRACE_PERIOD);
+                    
+                    // Only update Pipeline button if not in grace period
+                    if (!inPipelineGracePeriod) {
+                        // Check single_pipeline status
+                        if (status.single_pipeline === 'running') {
+                            extractState.singlePipeline = true;
+                            spButton.className = "extract-btn extract-btn-destructive text-sm py-1.5";
+                            spIcon.classList.remove('ri-play-line');
+                            spIcon.classList.add('ri-stop-line', 'animate-pulse');
+                            spText.textContent = 'Stop Pipeline';
+                        } else {
+                            extractState.singlePipeline = false;
+                            spButton.className = "extract-btn extract-btn-primary text-sm py-1.5";
+                            spIcon.classList.add('ri-play-line');
+                            spIcon.classList.remove('ri-stop-line', 'animate-pulse');
+                            spText.textContent = 'Start Pipeline';
+                            // Clear grace period if process stopped
+                            pipelineStartupGrace = null;
+                        }
                     }
                     
-                    // Update Media button
-                    const mediaButton = document.getElementById('media-toggle');
-                    const mediaIcon = document.getElementById('media-icon');
-                    const mediaText = document.getElementById('media-text');
+                    saveExtractState(); // Save state after update
                     
-                    if (status.media && status.media.running) {
-                        extractState.media = true;
-                        mediaButton.className = "extract-btn extract-btn-destructive";
-                        mediaIcon.classList.add('animate-pulse');
-                        mediaText.textContent = 'Stop Media';
-                    } else {
-                        extractState.media = false;
-                        mediaButton.className = "extract-btn extract-btn-primary";
-                        mediaIcon.classList.remove('animate-pulse');
-                        mediaText.textContent = 'Start Media';
-                    }
-                    
-                    // Enable all buttons after status update
+                    // Enable buttons after status update
                     rssButton.disabled = false;
-                    parseButton.disabled = false;
-                    mediaButton.disabled = false;
+                    spButton.disabled = false;
                 }
             } catch (error) {
                 console.error('Failed to fetch Extract system status:', error);
@@ -1851,10 +1969,15 @@
                 button.className = "extract-btn extract-btn-loading";
                 text.textContent = 'Starting...';
                 
+                // Set grace period for RSS startup
+                rssStartupGrace = Date.now();
+                
                 try {
-                    const response = await fetch('/api/extract/rss/start', { method: 'POST' });
+                    // Use the pipeline endpoint that runs RSS + Change Tracking
+                    const response = await fetch('/api/pipeline/start-rss', { method: 'POST' });
                     if (response.ok) {
                         extractState.rss = true;
+                        saveExtractState(); // Save state
                         button.className = "extract-btn extract-btn-destructive";
                         
                         // Start log streaming when starting RSS
@@ -1862,13 +1985,15 @@
                         icon.classList.add('animate-pulse');
                         text.textContent = 'Stop RSS';
                         button.disabled = false;
-                        showNotification('RSS Discovery started', 'success');
+                        showNotification('RSS + Change Tracking started', 'success');
                     }
                 } catch (error) {
                     button.disabled = false;
                     button.className = "extract-btn extract-btn-primary";
                     text.textContent = 'Start RSS';
                     showNotification('Failed to start RSS Discovery', 'error');
+                    // Clear grace period on error
+                    rssStartupGrace = null;
                 }
             } else {
                 // Immediate UI feedback
@@ -1877,14 +2002,16 @@
                 text.textContent = 'Stopping...';
                 
                 try {
-                    const response = await fetch('/api/extract/rss/stop', { method: 'POST' });
+                    // Stop the integrated RSS + Change Tracking process
+                    const response = await fetch('/api/pipeline/stop-rss', { method: 'POST' });
                     if (response.ok) {
                         extractState.rss = false;
+                        saveExtractState(); // Save state
                         button.className = "extract-btn extract-btn-primary";
                         icon.classList.remove('animate-pulse');
                         text.textContent = 'Start RSS';
                         button.disabled = false;
-                        showNotification('RSS Discovery stopped', 'warning');
+                        showNotification('RSS + Change Tracking stopped', 'warning');
                     }
                 } catch (error) {
                     button.disabled = false;
@@ -1895,112 +2022,90 @@
             }
         }
 
-        async function toggleParse() {
-            const button = document.getElementById('parse-toggle');
-            const icon = document.getElementById('parse-icon');
-            const text = document.getElementById('parse-text');
+        // Single Pipeline control
+        async function toggleSinglePipeline() {
+            const button = document.getElementById('single-pipeline-toggle');
+            const icon = document.getElementById('single-pipeline-icon');
+            const text = document.getElementById('single-pipeline-text');
             
-            if (!extractState.parse) {
-                // Immediate UI feedback
+            if (!extractState.singlePipeline) {
+                // Start Single Pipeline
                 button.disabled = true;
-                button.className = "extract-btn extract-btn-loading";
+                button.className = "extract-btn extract-btn-secondary text-sm py-1.5";
                 text.textContent = 'Starting...';
                 
+                // Set grace period for pipeline startup
+                pipelineStartupGrace = Date.now();
+                
                 try {
-                    const response = await fetch('/api/extract/parse/start', { method: 'POST' });
-                    if (response.ok) {
-                        extractState.parse = true;
-                        button.className = "extract-btn extract-btn-destructive";
-                        
-                        // Start log streaming when starting Parse
-                        startLogStreaming();
-                        icon.classList.add('animate-pulse');
-                        text.textContent = 'Stop Parse';
+                    const response = await fetch('/api/pipeline/start-single', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok && data.success !== false) {
+                        extractState.singlePipeline = true;
+                        saveExtractState(); // Save state
+                        button.className = "extract-btn extract-btn-destructive text-sm py-1.5";
+                        icon.classList.remove('ri-play-line');
+                        icon.classList.add('ri-stop-line', 'animate-pulse');
+                        text.textContent = 'Stop Pipeline';
                         button.disabled = false;
-                        showNotification('Extract API parsing started', 'success');
+                        showNotification('Pipeline started (continuous mode)', 'success');
+                        
+                        // Refresh pipeline logs
+                        if (window.pipelineLogs && typeof window.pipelineLogs.startAutoRefresh === 'function') {
+                            window.pipelineLogs.startAutoRefresh();
+                        } else if (window.pipelineLogs && typeof window.pipelineLogs.start === 'function') {
+                            window.pipelineLogs.start();
+                        }
+                    } else {
+                        // Process already running or other error
+                        extractState.singlePipeline = false;
+                        button.disabled = false;
+                        button.className = "extract-btn extract-btn-primary text-sm py-1.5";
+                        text.textContent = 'Start Pipeline';
+                        // Clear grace period on error
+                        pipelineStartupGrace = null;
+                        showNotification(data.message || 'Failed to start pipeline', 'error');
                     }
                 } catch (error) {
                     button.disabled = false;
-                    button.className = "extract-btn extract-btn-primary";
-                    text.textContent = 'Start Parse';
-                    showNotification('Failed to start parsing', 'error');
+                    button.className = "extract-btn extract-btn-primary text-sm py-1.5";
+                    text.textContent = 'Start Pipeline';
+                    // Clear grace period on error
+                    pipelineStartupGrace = null;
+                    showNotification('Failed to start Pipeline: ' + error.message, 'error');
                 }
             } else {
-                // Immediate UI feedback
+                // Stop Single Pipeline
                 button.disabled = true;
-                button.className = "extract-btn extract-btn-loading";
+                button.className = "extract-btn extract-btn-secondary text-sm py-1.5";
                 text.textContent = 'Stopping...';
                 
                 try {
-                    const response = await fetch('/api/extract/parse/stop', { method: 'POST' });
+                    const response = await fetch('/api/pipeline/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
                     if (response.ok) {
-                        extractState.parse = false;
-                        button.className = "extract-btn extract-btn-primary";
-                        icon.classList.remove('animate-pulse');
-                        text.textContent = 'Start Parse';
+                        extractState.singlePipeline = false;
+                        saveExtractState(); // Save state
+                        button.className = "extract-btn extract-btn-primary text-sm py-1.5";
+                        icon.classList.add('ri-play-line');
+                        icon.classList.remove('ri-stop-line', 'animate-pulse');
+                        text.textContent = 'Start Pipeline';
                         button.disabled = false;
-                        showNotification('Extract API parsing stopped', 'warning');
+                        showNotification('Pipeline stopped', 'warning');
                     }
                 } catch (error) {
                     button.disabled = false;
-                    button.className = "extract-btn extract-btn-destructive";
-                    text.textContent = 'Stop Parse';
-                    showNotification('Failed to stop parsing', 'error');
-                }
-            }
-        }
-
-        async function toggleMedia() {
-            const button = document.getElementById('media-toggle');
-            const icon = document.getElementById('media-icon');
-            const text = document.getElementById('media-text');
-            
-            if (!extractState.media) {
-                // Immediate UI feedback
-                button.disabled = true;
-                button.className = "extract-btn extract-btn-loading";
-                text.textContent = 'Starting...';
-                
-                try {
-                    const response = await fetch('/api/extract/media/start', { method: 'POST' });
-                    if (response.ok) {
-                        extractState.media = true;
-                        button.className = "extract-btn extract-btn-destructive";
-                        
-                        // Start log streaming when starting Media
-                        startLogStreaming();
-                        icon.classList.add('animate-pulse');
-                        text.textContent = 'Stop Media';
-                        button.disabled = false;
-                        showNotification('Media download started', 'success');
-                    }
-                } catch (error) {
-                    button.disabled = false;
-                    button.className = "extract-btn extract-btn-primary";
-                    text.textContent = 'Start Media';
-                    showNotification('Failed to start media download', 'error');
-                }
-            } else {
-                // Immediate UI feedback
-                button.disabled = true;
-                button.className = "extract-btn extract-btn-loading";
-                text.textContent = 'Stopping...';
-                
-                try {
-                    const response = await fetch('/api/extract/media/stop', { method: 'POST' });
-                    if (response.ok) {
-                        extractState.media = false;
-                        button.className = "extract-btn extract-btn-primary";
-                        icon.classList.remove('animate-pulse');
-                        text.textContent = 'Start Media';
-                        button.disabled = false;
-                        showNotification('Media download stopped', 'warning');
-                    }
-                } catch (error) {
-                    button.disabled = false;
-                    button.className = "extract-btn extract-btn-destructive";
-                    text.textContent = 'Stop Media';
-                    showNotification('Failed to stop media download', 'error');
+                    button.className = "extract-btn extract-btn-destructive text-sm py-1.5";
+                    text.textContent = 'Stop Pipeline';
+                    showNotification('Failed to stop Single Pipeline', 'error');
                 }
             }
         }
@@ -2008,6 +2113,44 @@
         function killAllAINewsProcesses() {
             if (confirm('Are you sure you want to kill all AI News processes? This will stop all parsing activity.')) {
                 showNotification('Killing all AI News processes...', 'warning');
+            }
+        }
+
+        // Initialize Database function
+        async function initializeDatabase() {
+            const button = document.getElementById('init-db-btn');
+            const statusEl = document.getElementById('db-status');
+            
+            button.disabled = true;
+            button.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> <span>Initializing...</span>';
+            
+            try {
+                // Test database connection
+                const response = await fetch('/api/db/initialize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusEl.textContent = 'Connected';
+                    statusEl.className = 'text-sm px-2 py-1 rounded-full bg-green-100 text-green-700';
+                    showNotification('Database connection initialized successfully', 'success');
+                    
+                    // Reload articles if on that tab
+                    if (currentTab === 'articles') {
+                        loadArticlesData();
+                    }
+                } else {
+                    throw new Error('Failed to initialize database');
+                }
+            } catch (error) {
+                statusEl.textContent = 'Error';
+                statusEl.className = 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
+                showNotification('Failed to initialize database: ' + error.message, 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '<i class="ri-database-2-line"></i> <span>Initialize Database</span>';
             }
         }
 
@@ -2047,6 +2190,11 @@
                 if (saved) {
                     const logsData = JSON.parse(saved);
                     const container = document.getElementById('log-container');
+                    
+                    // Check if container exists (it may not exist after refactoring)
+                    if (!container) {
+                        return;
+                    }
                     
                     // Clear placeholder
                     const placeholder = container.querySelector('.text-gray-400.text-center');
@@ -2101,90 +2249,29 @@
         }
         
         function startLogStreaming() {
-            if (logSocket && logSocket.readyState === WebSocket.OPEN) {
-                return; // Already connected
-            }
-            
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/api/extract/ws/logs`;
-            
-            logSocket = new WebSocket(wsUrl);
-            
-            logSocket.onopen = () => {
-                console.log('Log streaming connected');
-                clearLogs();
-                addLogEntry('info', 'Log streaming started...');
-            };
-            
-            logSocket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    
-                    // Handle Extract API log format
-                    if (data.phase && data.message) {
-                        // Direct log from Extract API - message already contains full info
-                        const level = data.level || 'info';
-                        const message = data.message;
-                        const timestamp = data.timestamp;
-                        addLogEntry(level, message, timestamp);
-                    } else if (data.type === 'connection_established') {
-                        // Connection confirmation
-                        console.log(data.message);
-                        addLogEntry('info', 'Extract API log streaming connected');
-                    } else if (data.type === 'log_entry' && data.log) {
-                        // Fallback: main app log format
-                        const log = data.log;
-                        if (log.logger && log.logger.includes('extract_system')) {
-                            const parts = log.logger.split('.');
-                            const phase = parts[1] || 'general';
-                            const message = `[${phase}] ${log.message}`;
-                            addLogEntry(log.level || 'info', message, log.timestamp);
-                        }
-                    }
-                } catch (error) {
-                    // Plain text message - log as info
-                    if (typeof event.data === 'string' && event.data.trim()) {
-                        addLogEntry('info', event.data.trim());
-                    }
-                    console.error('Failed to parse log message:', error);
-                }
-            };
-            
-            logSocket.onclose = (event) => {
-                console.log('Log streaming disconnected', event);
-                addLogEntry('warning', `Log streaming stopped (Code: ${event.code})`);
-                
-                // Auto-reconnect after 3 seconds if connection was closed unexpectedly
-                if (event.code !== 1000) { // 1000 = normal closure
-                    setTimeout(() => {
-                        if (!logSocket || logSocket.readyState === WebSocket.CLOSED) {
-                            addLogEntry('info', 'Attempting to reconnect log streaming...');
-                            startLogStreaming();
-                        }
-                    }, 3000);
-                }
-            };
-            
-            logSocket.onerror = (error) => {
-                console.error('Log streaming error:', error);
-                addLogEntry('error', 'Log streaming connection error - check if Extract API is running');
-            };
+            // WebSocket log streaming disabled - endpoint /ws/logs removed
+            console.log('Log streaming disabled - using status polling instead');
         }
         
         function addLogEntry(level, message, timestamp) {
             // Initialize log filter if not exists
             if (!logFilter) {
-                logFilter = new LogFilter();
+                // LogFilter removed - not needed for simplified logging
             }
             
-            // Process log through filter
-            const filtered = logFilter.processLog(level, message, timestamp);
-            if (!filtered) {
+            // No filtering needed for simplified logging
+            if (false) {
                 return; // Skip this log
             }
             
             const container = document.getElementById('log-container');
-            const filter = document.getElementById('log-level-filter').value;
+            if (!container) {
+                console.error('Log container not found');
+                return;
+            }
+            
+            const filterElement = document.getElementById('log-level-filter');
+            const filter = filterElement ? filterElement.value : 'all';
             
             // Apply level filter
             if (filter !== 'all' && level.toLowerCase() !== filter) {
@@ -2192,7 +2279,7 @@
             }
             
             // Handle array of messages (from buffer)
-            const messages = Array.isArray(filtered) ? filtered : [filtered];
+            const messages = Array.isArray(message) ? message : [message];
             
             messages.forEach(msg => {
                 // Create log entry
@@ -2279,16 +2366,16 @@
                     const data = await response.json();
                     const input = document.getElementById('last-parsed');
                     if (data.last_parsed) {
-                        // Remove milliseconds and Z from the date string
+                        // Convert ISO string to datetime-local format
                         let dateStr = data.last_parsed;
-                        // Remove .000Z or .000 at the end
-                        dateStr = dateStr.replace(/\.\d{3}Z?$/, '');
-                        // If ends with Z, remove it
-                        if (dateStr.endsWith('Z')) {
-                            dateStr = dateStr.slice(0, -1);
+                        // Remove timezone info and microseconds
+                        dateStr = dateStr.replace(/\.\d+/, ''); // Remove microseconds
+                        dateStr = dateStr.replace(/[+-]\d{2}:\d{2}$/, ''); // Remove timezone
+                        dateStr = dateStr.replace('Z', ''); // Remove Z if present
+                        // Ensure format is YYYY-MM-DDTHH:MM:SS
+                        if (dateStr.includes('T')) {
+                            input.value = dateStr.substring(0, 19); // Take only YYYY-MM-DDTHH:MM:SS
                         }
-                        // Set the value directly
-                        input.value = dateStr;
                     }
                 }
             } catch (error) {
@@ -2344,10 +2431,14 @@
                 if (response.ok) {
                     const stats = await response.json();
                     
-                    // Update counts
-                    document.getElementById('pending-count').textContent = stats.pending?.count || 0;
-                    document.getElementById('parsed-count').textContent = stats.parsed?.count || 0;
-                    document.getElementById('failed-count').textContent = stats.failed?.count || 0;
+                    // Update counts - check if elements exist
+                    const pendingEl = document.getElementById('pending-count');
+                    const parsedEl = document.getElementById('parsed-count');
+                    const publishedEl = document.getElementById('published-count');
+                    
+                    if (pendingEl) pendingEl.textContent = stats.pending || 0;
+                    if (parsedEl) parsedEl.textContent = stats.parsed || 0;
+                    if (publishedEl) publishedEl.textContent = stats.published || 0;
                 }
             } catch (error) {
                 console.error('Failed to load database stats:', error);
@@ -2703,14 +2794,17 @@
             // Initialize Extract button states
             updateExtractButtonStates();
             
+            // Set up frequent updates for Extract button states (every 5 seconds)
+            setInterval(() => {
+                updateExtractButtonStates();
+            }, 5000);
+            
             // Set up refresh interval - only for non-control tabs
             refreshInterval = setInterval(() => {
                 if (!logsPaused && currentTab !== 'control') {
                     loadTabData(currentTab);
                 }
-                // Also refresh Extract button states every 30 seconds
-                updateExtractButtonStates();
-            }, 30000);
+            }, 120000); // 2 minutes
         }
 
         // Helper functions
@@ -2793,8 +2887,10 @@
                                                     ${media.type || 'Unknown'}
                                                 </span>
                                                 <span class="px-2 py-1 text-xs rounded ${
-                                                    media.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                                                    media.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                                                    media.status === 'published' ? 'bg-green-100 text-green-800' : 
                                                     media.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                                    media.status === 'parsed' ? 'bg-gray-100 text-gray-800' : 
                                                     'bg-gray-100 text-gray-800'
                                                 }">${media.status || 'unknown'}</span>
                                             </div>
@@ -3006,7 +3102,8 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
     <!-- TEMPORARILY DISABLED: monitoring.js conflicts with index.html functions -->
     <!-- <script src="/static/monitoring.js"></script> -->
     
-    <script src="/static/js/log-filter.js"></script>
+    <!-- Pipeline Logs for single pipeline integration -->
+    <script src="/static/pipeline-logs.js?v=2.0"></script>
     
     <script>
         // WebSocket for system metrics updates
@@ -3033,12 +3130,17 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
                         updateSystemInfo(data);
                     }
                     
+                    // Handle pipeline log updates for real-time display
+                    if (data.type === 'pipeline_log' && window.pipelineLogs) {
+                        window.pipelineLogs.addOperation(data);
+                    }
+                    
                     // Handle process status changes - auto-refresh Database Management
                     if (data.type === 'process_status_change') {
                         console.log('Process status changed:', data);
                         
                         // Refresh database stats when any phase completes
-                        if (data.status === 'stopped' || data.status === 'parsed') {
+                        if (data.status === 'stopped' || data.status === 'completed') {
                             setTimeout(() => {
                                 console.log('Auto-refreshing Database Management after process completion');
                                 loadDatabaseStats();
@@ -3070,12 +3172,82 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
             }
         }
         
+        // Function for Articles tab Database Management
+        async function cleanDatabaseArticles() {
+            const selectEl = document.getElementById('clean-status-articles');
+            const status = selectEl.value;
+            
+            if (!status) {
+                showNotification('Please select a status to clean', 'error');
+                return;
+            }
+            
+            const confirmMsg = `Are you sure you want to delete all ${status} articles? This will also delete their media files.`;
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/articles/clean/${status}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                showNotification(result.message || `Successfully deleted ${result.deleted_count} ${status} articles`, 'success');
+                
+                // Refresh stats and articles
+                loadDatabaseStatsArticles();
+                if (currentTab === 'articles') {
+                    await loadArticlesData(currentPage);
+                }
+                
+                // Reset the select
+                selectEl.value = '';
+                document.getElementById('clean-db-btn-articles').disabled = true;
+                
+            } catch (error) {
+                console.error('Error cleaning database:', error);
+                showNotification('Failed to clean database: ' + error.message, 'error');
+            }
+        }
+        
+        // Load database stats for Articles tab
+        async function loadDatabaseStatsArticles() {
+            try {
+                const response = await fetch('/api/articles/stats');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                
+                // Update counts for Articles tab using by_status from API
+                const statusCounts = data.by_status || {};
+                document.getElementById('pending-count-articles').textContent = statusCounts.pending || 0;
+                document.getElementById('parsed-count-articles').textContent = statusCounts.parsed || 0;
+                document.getElementById('published-count-articles').textContent = statusCounts.published || 0;
+                document.getElementById('failed-count-articles').textContent = statusCounts.failed || 0;
+                
+            } catch (error) {
+                console.error('Error loading database stats for articles:', error);
+                // Set to 0 on error
+                document.getElementById('pending-count-articles').textContent = '0';
+                document.getElementById('parsed-count-articles').textContent = '0';
+                document.getElementById('published-count-articles').textContent = '0';
+                document.getElementById('failed-count-articles').textContent = '0';
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Connect to metrics WebSocket
             connectMetricsWebSocket();
             
             // Initialize database management
             loadDatabaseStats();
+            loadDatabaseStatsArticles();
             
             // Set up clean button state handler
             const cleanStatusSelect = document.getElementById('clean-status');
@@ -3083,8 +3255,20 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
                 cleanStatusSelect.addEventListener('change', updateCleanButton);
             }
             
-            // Refresh database stats every 30 seconds
-            setInterval(loadDatabaseStats, 30000);
+            // Set up clean button state handler for Articles tab
+            const cleanStatusSelectArticles = document.getElementById('clean-status-articles');
+            if (cleanStatusSelectArticles) {
+                cleanStatusSelectArticles.addEventListener('change', function() {
+                    const btn = document.getElementById('clean-db-btn-articles');
+                    btn.disabled = !this.value;
+                });
+            }
+            
+            // Refresh database stats every 2 minutes
+            setInterval(() => {
+                loadDatabaseStats();
+                loadDatabaseStatsArticles();
+            }, 120000); // 2 minutes
         });
     </script>
 </body>

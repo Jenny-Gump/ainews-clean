@@ -15,7 +15,8 @@ fi
 # Activate virtual environment
 source ../venv/bin/activate
 
-# Already at project root
+# Move to project root for proper module resolution
+cd ..
 
 # Install requirements if needed
 pip install -q -r monitoring/requirements.txt
@@ -47,4 +48,6 @@ rotate_logs
 
 # Start monitoring server with log rotation
 echo "📊 Starting monitoring server on http://localhost:8001"
-python -m monitoring.app 2>&1 | tee -a logs/monitoring/system.log
+
+# Set process title and start monitoring 
+exec -a "ainews-monitoring-dashboard" python -m monitoring.app 2>&1 | tee -a logs/monitoring/system.log
