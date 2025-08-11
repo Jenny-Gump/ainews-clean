@@ -178,6 +178,7 @@ async def get_articles(
     search: Optional[str] = Query(None, description="Search in title and content"),
     status: Optional[str] = Query(None, description="Filter by article status"),
     source_id: Optional[str] = Query(None, description="Filter by source ID"),
+    article_type: Optional[str] = Query(None, description="Filter by article type (RSS/Blog)"),
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     has_media: Optional[bool] = Query(None, description="Filter by media presence"),
@@ -206,6 +207,12 @@ async def get_articles(
             if source_id:
                 conditions.append("a.source_id = ?")
                 params.append(source_id)
+            
+            if article_type:
+                if article_type == "RSS":
+                    conditions.append("(a.discovered_via = 'rss' OR a.discovered_via IS NULL)")
+                elif article_type == "Blog":
+                    conditions.append("a.discovered_via = 'change_tracking'")
             
             if date_from:
                 conditions.append("DATE(a.published_date) >= ?")
@@ -253,7 +260,12 @@ async def get_articles(
                     CASE WHEN a.media_count > 0 THEN 1 ELSE 0 END as has_media,
                     '' as summary, '' as tags,
                     a.media_count, 0 as word_count, s.name as source_name,
-                    w.wp_post_id
+                    w.wp_post_id,
+                    CASE 
+                        WHEN a.discovered_via = 'change_tracking' THEN 'Blog'
+                        WHEN a.discovered_via = 'rss' THEN 'RSS'
+                        ELSE 'RSS'
+                    END as article_type
                 FROM articles a
                 LEFT JOIN sources s ON a.source_id = s.source_id
                 LEFT JOIN wordpress_articles w ON a.article_id = w.article_id
@@ -289,7 +301,8 @@ async def get_articles(
                     "media_count": row[10] or 0,
                     "word_count": row[11] or 0,
                     "source_name": row[12] or "Unknown",  # source_name from JOIN
-                    "wp_post_id": row[13]  # WordPress post ID
+                    "wp_post_id": row[13],  # WordPress post ID
+                    "article_type": row[14]  # Article type (RSS or Blog)
                 })
             
             # Calculate pagination info

@@ -58,14 +58,10 @@ def parse_arguments():
 🔧 Обработка конкретной статьи:
   python core/main.py --process-article ARTICLE_ID
 
-⚡ Параллельная обработка:
-  python core/main.py --parallel-workers 3
-  python core/main.py --parallel-workers 3 --max-articles 20
 
 📊 Информация:
   python core/main.py --stats
   python core/main.py --list-sources
-  python core/main.py --monitor-sessions
 
 🔍 Change Tracking (мониторинг изменений):
   python core/main.py --change-tracking --scan --limit 5
@@ -146,14 +142,6 @@ WORKFLOW С CHANGE TRACKING:
         '--monitor-sessions',
         action='store_true',
         help='Показать активные сессии и заблокированные статьи'
-    )
-    
-    # Параллельные воркеры
-    parser.add_argument(
-        '--parallel-workers',
-        type=int,
-        metavar='N',
-        help='Запуск N параллельных воркеров для обработки статей'
     )
     
     # Дополнительные параметры
@@ -343,139 +331,6 @@ async def run_continuous_pipeline(max_articles=None, delay_between=5):
                 logger.info(f"   {phase}: успех={stats['success']}, ошибки={stats['failed']}")
         
         return result
-
-
-async def run_parallel_workers(num_workers: int, max_articles: int = None, delay_between: int = 5):
-    """Запуск нескольких параллельных воркеров для обработки статей"""
-    logger = get_logger('core.main')
-    
-    with LogContext.operation("parallel_workers", num_workers=num_workers):
-        logger.info("⚡ Запуск параллельных воркеров")
-        logger.info(f"   Количество воркеров: {num_workers}")
-        logger.info(f"   Лимит статей на воркер: {max_articles if max_articles else 'без ограничений'}")
-        logger.info(f"   Задержка между статьями: {delay_between} сек")
-        logger.info("   Для остановки нажмите Ctrl+C")
-        
-        # Создаем задачи для каждого воркера
-        tasks = []
-        for worker_num in range(num_workers):
-            worker_id = f"worker_{worker_num + 1}"
-            task = asyncio.create_task(
-                run_single_worker(worker_id, max_articles, delay_between),
-                name=f"Worker-{worker_id}"
-            )
-            tasks.append(task)
-        
-        # Graceful shutdown handler
-        stop_event = asyncio.Event()
-        
-        def signal_handler(sig, frame):
-            logger.info("\n⚠️ Получен сигнал остановки. Завершение всех воркеров...")
-            stop_event.set()
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        
-        # Запускаем все воркеры параллельно
-        try:
-            # Ждем либо завершения всех задач, либо сигнала остановки
-            done, pending = await asyncio.wait(
-                tasks + [asyncio.create_task(stop_event.wait())],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # Если получен сигнал остановки, отменяем все задачи
-            if stop_event.is_set():
-                logger.info("Отменяем все активные воркеры...")
-                for task in pending:
-                    task.cancel()
-                
-                # Ждем завершения отмененных задач
-                await asyncio.gather(*pending, return_exceptions=True)
-            
-        except KeyboardInterrupt:
-            logger.info("Прерывание работы...")
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Собираем статистику от всех воркеров
-        total_processed = 0
-        total_success = 0
-        total_errors = 0
-        total_published = 0
-        
-        for task in tasks:
-            if task.done() and not task.cancelled():
-                try:
-                    result = task.result()
-                    if result:
-                        total_processed += result.get('processed_count', 0)
-                        total_success += result.get('success_count', 0)
-                        total_errors += result.get('error_count', 0)
-                        total_published += result.get('wordpress_published', 0)
-                except Exception as e:
-                    logger.error(f"Ошибка получения результата от воркера: {e}")
-        
-        # Выводим финальную статистику
-        logger.info("\n" + "="*60)
-        logger.info("📊 ФИНАЛЬНАЯ СТАТИСТИКА ПАРАЛЛЕЛЬНЫХ ВОРКЕРОВ:")
-        logger.info("="*60)
-        logger.info(f"👥 Количество воркеров: {num_workers}")
-        logger.info(f"✅ Всего обработано: {total_processed} статей")
-        logger.info(f"   - Успешно: {total_success}")
-        logger.info(f"   - С ошибками: {total_errors}")
-        logger.info(f"📰 Опубликовано в WordPress: {total_published}")
-        logger.info("="*60)
-        
-        return {
-            'num_workers': num_workers,
-            'total_processed': total_processed,
-            'total_success': total_success,
-            'total_errors': total_errors,
-            'wordpress_published': total_published
-        }
-
-
-async def run_single_worker(worker_id: str, max_articles: int = None, delay_between: int = 5):
-    """Отдельный воркер для обработки статей"""
-    logger = get_logger(f'core.worker.{worker_id}')
-    
-    logger.info(f"🚀 Запуск воркера {worker_id}")
-    
-    # Каждый воркер создает свой пайплайн с уникальной сессией
-    pipeline = SingleArticlePipeline()
-    
-    # Добавляем worker_id в session_manager для уникальности
-    pipeline.session_manager.worker_id_suffix = f"_{worker_id}"
-    
-    try:
-        # Запускаем пайплайн в continuous mode
-        result = await pipeline.run_pipeline(
-            continuous_mode=True,
-            max_articles=max_articles,
-            delay_between=delay_between
-        )
-        
-        logger.info(f"✅ Воркер {worker_id} завершил работу: {result['processed_count']} статей")
-        return result
-        
-    except asyncio.CancelledError:
-        logger.info(f"⏹️ Воркер {worker_id} был остановлен")
-        return {
-            'processed_count': pipeline.processed_count,
-            'success_count': pipeline.success_count,
-            'error_count': pipeline.error_count,
-            'wordpress_published': pipeline.wordpress_published
-        }
-    except Exception as e:
-        logger.error(f"❌ Воркер {worker_id} завершился с ошибкой: {e}")
-        return {
-            'processed_count': pipeline.processed_count,
-            'success_count': pipeline.success_count, 
-            'error_count': pipeline.error_count,
-            'wordpress_published': pipeline.wordpress_published
-        }
-
 
 
 
@@ -1153,24 +1008,6 @@ async def main():
             
         elif args.change_tracking:
             await run_change_tracking(args)
-            
-        elif args.parallel_workers is not None:
-            # Запуск параллельных воркеров
-            if args.parallel_workers < 1:
-                logger.error("❌ Количество воркеров должно быть больше 0")
-                sys.exit(1)
-            elif args.parallel_workers > 10:
-                logger.error("❌ Максимальное количество воркеров: 10")
-                sys.exit(1)
-            
-            await run_parallel_workers(
-                num_workers=args.parallel_workers,
-                max_articles=args.max_articles,
-                delay_between=args.delay_between
-            )
-            
-        elif args.monitor_sessions:
-            show_session_monitoring()
             
         else:
             logger.info("❌ Не указана команда. Используйте --help для справки")

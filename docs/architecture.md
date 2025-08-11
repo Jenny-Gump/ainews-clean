@@ -171,50 +171,17 @@ CREATE TABLE wordpress_articles (
 );
 ```
 
-## Session Management and Parallel Processing
+## Processing Architecture
 
-### Session Management Architecture
-AI News Parser использует **SessionManager** для безопасной параллельной обработки:
+### Pipeline Modes
+AI News Parser использует последовательную обработку статей:
 
 #### Key Components:
-- **Session UUID**: Уникальный идентификатор каждой сессии обработки
-- **Worker ID**: Составной ID из hostname, PID и части UUID
-- **Heartbeat System**: Обновление активности каждые 10 секунд
-- **Atomic Locking**: Гарантия обработки статьи только одним воркером
+- **Single Pipeline**: Обработка одной статьи через все фазы
+- **Continuous Mode**: Автоматическая обработка всех pending статей
+- **Error Handling**: При ошибке переход к следующей статье
+- **Graceful Shutdown**: Ctrl+C завершает после текущей статьи
 
-#### Database Tables:
-```sql
--- Сессии обработки
-CREATE TABLE pipeline_sessions (
-    session_uuid TEXT PRIMARY KEY,
-    worker_id TEXT NOT NULL,
-    status TEXT,  -- active, completed, abandoned
-    started_at DATETIME,
-    last_heartbeat DATETIME,
-    current_article_id TEXT,
-    total_articles INTEGER,
-    success_count INTEGER,
-    error_count INTEGER
-);
-
--- Блокировки статей
-CREATE TABLE session_locks (
-    article_id TEXT PRIMARY KEY,
-    session_uuid TEXT NOT NULL,
-    worker_id TEXT NOT NULL,
-    locked_at DATETIME,
-    heartbeat DATETIME,
-    released_at DATETIME,
-    status TEXT  -- locked, released, expired
-);
-```
-
-#### Critical Fixes (August 9, 2025):
-1. **Proper Lock Release**: `release_article()` теперь очищает все поля `processing_*`
-2. **No Recursion**: `get_next_article()` использует безопасный цикл вместо рекурсии
-3. **Single Article Per Session**: Автоматический release старых блокировок
-4. **Heartbeat All Locks**: Обновляет heartbeat для ВСЕХ блокировок сессии
-5. **Faster Cleanup**: Таймауты уменьшены с 30 до 10 минут
 
 ## Key Design Decisions
 

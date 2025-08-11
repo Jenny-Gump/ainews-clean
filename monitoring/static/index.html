@@ -593,8 +593,8 @@
                                                    onchange="toggleAllArticles()" 
                                                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                                         </th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground)); width: 45%;">Title</th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 18%;">
+                                        <th class="px-4 py-3 text-left text-sm font-medium" style="color: oklch(var(--muted-foreground)); width: 35%;">Title</th>
+                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 13%;">
                                             <div class="flex items-center justify-between">
                                                 <span>Source</span>
                                                 <button id="source-filter-btn" onclick="toggleSourceFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
@@ -611,7 +611,32 @@
                                                 </div>
                                             </div>
                                         </th>
-                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 15%;">
+                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 10%;">
+                                            <div class="flex items-center justify-between">
+                                                <span>Type</span>
+                                                <button id="type-filter-btn" onclick="toggleTypeFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
+                                                    <i class="ri-filter-line text-xs"></i>
+                                                </button>
+                                            </div>
+                                            <!-- Type Filter Dropdown -->
+                                            <div id="type-filter-dropdown" class="filter-dropdown absolute top-full left-0 mt-1 w-32 bg-white border rounded-lg shadow-lg z-50 hidden">
+                                                <div class="max-h-48 overflow-y-auto" id="type-filter-options">
+                                                    <label class="flex items-center p-2 hover:bg-gray-50 cursor-pointer">
+                                                        <input type="radio" name="type-filter" value="all" checked class="mr-2" onchange="selectTypeFilter(null)">
+                                                        <span class="text-sm">All Types</span>
+                                                    </label>
+                                                    <label class="flex items-center p-2 hover:bg-gray-50 cursor-pointer">
+                                                        <input type="radio" name="type-filter" value="RSS" class="mr-2" onchange="selectTypeFilter('RSS')">
+                                                        <span class="text-sm">RSS</span>
+                                                    </label>
+                                                    <label class="flex items-center p-2 hover:bg-gray-50 cursor-pointer">
+                                                        <input type="radio" name="type-filter" value="Blog" class="mr-2" onchange="selectTypeFilter('Blog')">
+                                                        <span class="text-sm">Blog</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </th>
+                                        <th class="px-4 py-3 text-left text-sm font-medium relative" style="color: oklch(var(--muted-foreground)); width: 12%;">
                                             <div class="flex items-center justify-between">
                                                 <span>Date</span>
                                                 <button id="date-filter-btn" onclick="toggleDateFilter()" class="ml-2 p-1 hover:bg-gray-200 rounded">
@@ -644,7 +669,7 @@
                                 </thead>
                                 <tbody id="articles-table-body" class="divide-y" style="border-color: oklch(var(--border));">
                                     <tr>
-                                        <td colspan="6" class="px-4 py-8 text-center text-sm" style="color: oklch(var(--muted-foreground));">Loading articles...</td>
+                                        <td colspan="7" class="px-4 py-8 text-center text-sm" style="color: oklch(var(--muted-foreground));">Loading articles...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -864,7 +889,8 @@
         let activeFilters = {
             source: null,
             date: null,
-            status: null
+            status: null,
+            type: null
         };
         
         async function loadArticlesData(page = 1) {
@@ -875,7 +901,7 @@
             clearSelection();
             
             // Show loading state
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8"><div class="flex items-center justify-center"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3"></div>Loading articles...</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8"><div class="flex items-center justify-center"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3"></div>Loading articles...</div></td></tr>';
             
             try {
                 // Build query parameters with filters
@@ -888,6 +914,7 @@
                 if (activeFilters.source) params.append('source_filter', activeFilters.source);
                 if (activeFilters.date) params.append('date_filter', activeFilters.date);
                 if (activeFilters.status) params.append('status', activeFilters.status);
+                if (activeFilters.type) params.append('article_type', activeFilters.type);
                 
                 const response = await fetch(`/api/articles?${params}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -913,6 +940,9 @@
                             </td>
                             <td class="py-3 px-4 text-sm cursor-pointer hover:bg-blue-50" onclick="filterBySource('${article.source_id || ''}', '${escapeHtml(article.source_name || 'Unknown')}')" title="Click to filter by this source">
                                 ${escapeHtml(article.source_name || 'Unknown')}
+                            </td>
+                            <td class="py-3 px-4 text-sm cursor-pointer hover:bg-blue-50" onclick="filterByType('${article.article_type || 'RSS'}')" title="Click to filter by this type">
+                                ${article.article_type || 'RSS'}
                             </td>
                             <td class="py-3 px-4 text-sm cursor-pointer hover:bg-blue-50" onclick="filterByDate('${new Date(article.created_at || article.published_date).toISOString().split('T')[0]}')" title="Click to filter by this date">
                                 ${new Date(article.created_at || article.published_date).toLocaleDateString()}
@@ -1332,16 +1362,28 @@
             activeFilters.status = status;
             activeFilters.source = null;
             activeFilters.date = null;
+            activeFilters.type = null;
             currentPage = 1;
             loadArticlesData(1);
             showActiveFilter('status', status);
+        }
+        
+        function filterByType(type) {
+            activeFilters.type = type;
+            activeFilters.source = null;
+            activeFilters.date = null;
+            activeFilters.status = null;
+            currentPage = 1;
+            loadArticlesData(1);
+            showActiveFilter('type', type);
         }
         
         function clearFilters() {
             activeFilters = {
                 source: null,
                 date: null,
-                status: null
+                status: null,
+                type: null
             };
             currentPage = 1;
             loadArticlesData(1);
@@ -1388,8 +1430,21 @@
             }
         }
 
+        function toggleTypeFilter() {
+            const dropdown = document.getElementById('type-filter-dropdown');
+            const isVisible = !dropdown.classList.contains('hidden');
+            
+            // Hide all dropdowns first
+            hideAllFilterDropdowns();
+            
+            if (!isVisible) {
+                dropdown.classList.remove('hidden');
+            }
+        }
+
         function hideAllFilterDropdowns() {
             document.getElementById('source-filter-dropdown').classList.add('hidden');
+            document.getElementById('type-filter-dropdown').classList.add('hidden');
             document.getElementById('date-filter-dropdown').classList.add('hidden');
             document.getElementById('status-filter-dropdown').classList.add('hidden');
         }
@@ -1501,6 +1556,18 @@
                 filterBySource(sourceId, sourceName);
             } else {
                 activeFilters.source = null;
+                currentPage = 1;
+                loadArticlesData(1);
+                hideActiveFilter();
+            }
+            hideAllFilterDropdowns();
+        }
+        
+        function selectTypeFilter(type) {
+            if (type) {
+                filterByType(type);
+            } else {
+                activeFilters.type = null;
                 currentPage = 1;
                 loadArticlesData(1);
                 hideActiveFilter();

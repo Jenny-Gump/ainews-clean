@@ -21,10 +21,7 @@ python core/main.py --rss-discover
 # 🆕 НОВОЕ: Обработка ВСЕХ pending статей автоматически
 python core/main.py --continuous-pipeline
 
-# ⚡ ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: 3 воркера одновременно
-python core/main.py --parallel-workers 3
-
-# Обработка одной статьи через все фазы (старый способ)
+# Обработка одной статьи через все фазы
 python core/main.py --single-pipeline
 
 # Отслеживание изменений на веб-страницах
@@ -41,8 +38,7 @@ python core/main.py --stats
 - **5 фаз обработки**: RSS → Парсинг → Медиа → Перевод → Публикация
 - **30 источников**: RSS и Google Alerts
 - **Простая очередь FIFO**: без приоритетов
-- **⚡ Параллельная обработка**: SessionManager с атомарными блокировками
-- **Мониторинг сессий**: отслеживание активных воркеров и статей
+- **Обработка статей**: Single Pipeline или Continuous mode
 
 ### 🆕 Система внешних промптов
 - **Файлы промптов**: `prompts/` - легкое редактирование без кода
@@ -105,27 +101,6 @@ python core/main.py --continuous-pipeline --delay-between 10
 - **Graceful shutdown**: Ctrl+C завершает после текущей статьи
 - **Статистика**: подробный отчет по завершении
 
-### ⚡ Параллельная обработка
-```bash
-python core/main.py --parallel-workers 3
-python core/main.py --parallel-workers 3 --max-articles 20 --delay-between 5
-```
-Запуск нескольких параллельных воркеров:
-- **Безопасная конкурентность**: блокировки предотвращают дублирование
-- **Session Management**: каждый воркер имеет уникальную сессию
-- **Мониторинг**: отслеживание активных воркеров в реальном времени
-- **Автобалансировка**: воркеры автоматически берут следующую доступную статью
-
-#### Мониторинг параллельной работы
-```bash
-python core/main.py --monitor-sessions  # Просмотр активных сессий и блокировок
-```
-
-#### Демонстрация
-```bash
-./scripts/parallel_demo.py  # Интерактивная демонстрация работы 3 воркеров
-```
-
 ### Change Tracking
 ```bash
 python core/main.py --change-tracking --scan --limit 5
@@ -136,53 +111,6 @@ python core/main.py --change-tracking --stats
 ```bash
 python core/main.py --stats           # Статистика системы
 python core/main.py --list-sources    # Список источников
-```
-
-## ⚡ Параллельная обработка и SessionManager
-
-### Архитектура конкурентности
-AI News Parser поддерживает безопасную параллельную обработку статей через **SessionManager**:
-
-- **Атомарные блокировки**: каждая статья может обрабатываться только одним воркером
-- **Heartbeat система**: воркеры обновляют heartbeat каждые 10 секунд для ВСЕХ блокировок
-- **Автоочистка**: зависшие сессии автоматически освобождаются через 10 минут
-- **Уникальные сессии**: каждый воркер имеет свой UUID и worker_id
-- **🆕 Защита от зависаний**: автоматическое освобождение processing_session_id после обработки
-- **🆕 Одна статья на сессию**: автоматический release старых блокировок при захвате новой
-
-### Таблицы базы данных
-```sql
--- Активные сессии обработки
-pipeline_sessions (session_uuid, worker_id, status, started_at, last_heartbeat, ...)
-
--- Блокировки статей
-session_locks (article_id, session_uuid, worker_id, locked_at, heartbeat, status)
-```
-
-### Мониторинг и диагностика
-```bash
-# Просмотр активных воркеров
-python core/main.py --monitor-sessions
-
-# Очистка зависших сессий
-python -c "from core.session_manager import SessionManager; SessionManager().cleanup_stale_sessions()"
-```
-
-### Примеры использования
-
-**Базовый запуск 3 воркеров:**
-```bash
-python core/main.py --parallel-workers 3
-```
-
-**Ограниченная обработка:**
-```bash
-python core/main.py --parallel-workers 3 --max-articles 20 --delay-between 5
-```
-
-**Демонстрация:**
-```bash
-./scripts/parallel_demo.py  # Интерактивная демонстрация
 ```
 
 ## 🏗️ Структура проекта
@@ -453,8 +381,8 @@ python core/main.py --stats  # Проверить статистику
   - ✅ Защита от множественных блокировок: одна сессия = одна активная статья
   - ✅ Уменьшение таймаутов с 30 до 10 минут для быстрой очистки зависших сессий
   - ✅ Heartbeat обновляет ВСЕ блокировки сессии, а не только текущую
-- **Результат**: Стабильная работа в continuous и parallel режимах без зависаний
+- **Результат**: Стабильная работа в continuous режиме без зависаний
 
 ---
 
-**Обновлено**: 9 августа 2025 | **Версия**: 2.6 | **Single Pipeline + Session Management Fixes + Stable Parallel Processing**
+**Обновлено**: 11 августа 2025 | **Версия**: 2.6 | **Single Pipeline + External Prompts System**
