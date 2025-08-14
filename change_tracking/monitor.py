@@ -227,7 +227,13 @@ class ChangeMonitor:
                     
                     # При первом сканировании сохраняем базовый список URL для будущих сравнений
                     try:
-                        extracted_urls = self.url_extractor.extract_urls_from_content(markdown_content, url)
+                        # НЕ используем page_titles для baseline - избегаем множественных API вызовов
+                        extracted_urls = await self.url_extractor.extract_urls_from_content(
+                            markdown_content, 
+                            url, 
+                            use_page_titles=False, 
+                            firecrawl_client=None
+                        )
                         if extracted_urls:
                             # Сохраняем как baseline (is_new=False, чтобы не считать их новыми)
                             baseline_count = self.db.store_baseline_urls(url, extracted_urls)
@@ -540,9 +546,12 @@ class ChangeMonitor:
         """
         try:
             # Извлекаем URL из markdown контента
-            extracted_urls = self.url_extractor.extract_urls_from_content(
+            # ВРЕМЕННО ОТКЛЮЧАЕМ реальные заголовки для стабильности системы
+            extracted_urls = await self.url_extractor.extract_urls_from_content(
                 markdown_content, 
-                source_page_url
+                source_page_url,
+                use_page_titles=False,
+                firecrawl_client=None
             )
             
             if not extracted_urls:
@@ -709,7 +718,7 @@ class ChangeMonitor:
             Результат экспорта
         """
         from app_logging import log_operation
-        from core.database import Database
+        from services.supabase_client import SupabaseClient
         from datetime import datetime
         import time
         
@@ -724,8 +733,8 @@ class ChangeMonitor:
             
             self.logger.info("Starting export_changed_articles function")
             
-            # Получаем изменившиеся статьи используя Change Tracking DB connection
-            main_db = Database()
+            # Получаем изменившиеся статьи используя Supabase
+            main_db = SupabaseClient()
             changed_articles = []
             
             self.logger.info("Getting changed articles from tracking database...")

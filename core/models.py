@@ -188,7 +188,6 @@ class Article(ArticleBase, TimestampedModel):
     # Relationships
     source: Optional[Source] = None
     media_files: List['MediaFile'] = Field(default_factory=list)
-    related_links: List['RelatedLink'] = Field(default_factory=list)
     
     class Config:
         orm_mode = True

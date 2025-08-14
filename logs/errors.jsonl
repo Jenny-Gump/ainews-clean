@@ -16,3 +16,9 @@
 {"timestamp": "2025-08-11T11:28:13.843513", "error_type": "database_error", "message": "datatype mismatch", "db_path": "data/ainews.db", "connection_time": 0.00015091896057128906}
 {"timestamp": "2025-08-11T11:28:47.268345", "error_type": "database_error", "message": "datatype mismatch", "db_path": "data/ainews.db", "connection_time": 0.00049591064453125}
 {"timestamp": "2025-08-11T11:29:41.240987", "error_type": "database_error", "message": "no such column: None", "db_path": "data/ainews.db", "connection_time": 0.00032401084899902344}
+{"timestamp": "2025-08-13T17:03:02.580866", "error_type": "database_error", "message": "name 'logger' is not defined", "db_path": "data/ainews.db", "connection_time": 0.0001361370086669922}
+{"timestamp": "2025-08-13T17:04:19.719352", "error_type": "database_error", "message": "no such column: retry_count", "db_path": "data/ainews.db", "connection_time": 0.0002586841583251953}
+{"timestamp": "2025-08-13T17:29:46.232998", "error_type": "database_error", "message": "no such column: retry_count", "db_path": "data/ainews.db", "connection_time": 0.0002338886260986328}
+{"timestamp": "2025-08-13T17:54:17.893992", "error_type": "database_error", "message": "no such column: retry_count", "db_path": "data/ainews.db", "connection_time": 0.0001728534698486328}
+{"timestamp": "2025-08-13T19:29:07.062477", "error_type": "database_error", "message": "'sqlite3.Connection' object has no attribute '_execute_sql'", "db_path": "data/ainews.db", "connection_time": 0.0005729198455810547}
+{"timestamp": "2025-08-13T19:30:59.824092", "error_type": "database_error", "message": "'sqlite3.Connection' object has no attribute '_execute_sql'", "db_path": "data/ainews.db", "connection_time": 0.0005929470062255859}

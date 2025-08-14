@@ -38,7 +38,6 @@ https://crusoe.ai/blog/
 https://lambda.ai/blog
 https://www.tempus.com/tech-blog/
 https://www.pathai.com/news/
-https://www.augmedix.com/press-room
 https://news.mit.edu/topic/artificial-intelligence2
 https://hai.stanford.edu/news
 https://blog.perplexity.ai/

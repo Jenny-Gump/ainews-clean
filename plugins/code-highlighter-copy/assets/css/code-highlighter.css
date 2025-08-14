@@ -1,0 +1,970 @@
+/**
+ * Code Highlighter Copy - Professional Theme
+ * Version: 2.0.0
+ * WordPress Plugin Styles with Full Theme Support
+ */
+
+/* ================================
+   CSS Variables for Customization
+   ================================ */
+:root {
+    --chcb-bg-dark: #1e1e1e;
+    --chcb-bg-light: #f8f9fa;
+    --chcb-header-dark-from: #2d3748;
+    --chcb-header-dark-to: #1a202c;
+    --chcb-header-light-from: #e2e8f0;
+    --chcb-header-light-to: #cbd5e0;
+    --chcb-text-dark: #ffffff;
+    --chcb-text-light: #2d3748;
+    --chcb-border-dark: rgba(255, 255, 255, 0.1);
+    --chcb-border-light: rgba(0, 0, 0, 0.1);
+    --chcb-copy-btn-bg: rgba(255, 255, 255, 0.1);
+    --chcb-copy-btn-hover: rgba(255, 255, 255, 0.2);
+    --chcb-success-color: #4CAF50;
+    --chcb-error-color: #f44336;
+    --chcb-scrollbar-bg: rgba(255, 255, 255, 0.05);
+    --chcb-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --chcb-line-highlight: rgba(255, 255, 255, 0.05);
+}
+
+/* ================================
+   Main Code Block Container
+   ================================ */
+.chcb-code-block {
+    position: relative;
+    margin: 2em 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background: var(--chcb-bg-dark);
+    font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+    animation: slideIn 0.3s ease-out;
+}
+
+/* Light Theme Support */
+.chcb-theme-light .chcb-code-block {
+    background: var(--chcb-bg-light);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+/* ================================
+   Header Bar with Controls
+   ================================ */
+.chcb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: linear-gradient(to right, var(--chcb-header-dark-from), var(--chcb-header-dark-to));
+    border-bottom: 1px solid var(--chcb-border-dark);
+    min-height: 48px;
+    position: relative;
+}
+
+.chcb-theme-light .chcb-header {
+    background: linear-gradient(to right, var(--chcb-header-light-from), var(--chcb-header-light-to));
+    border-bottom: 1px solid var(--chcb-border-light);
+}
+
+/* Header Controls Container */
+.chcb-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Language Label with Color Indicators */
+.chcb-language {
+    color: var(--chcb-text-dark);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+}
+
+.chcb-theme-light .chcb-language {
+    color: var(--chcb-text-light);
+}
+
+/* Language Color Dots */
+.chcb-language::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    display: inline-block;
+}
+
+/* Language-specific colors */
+.chcb-code-block[data-language="php"] .chcb-language::before { background: #777BB4; }
+.chcb-code-block[data-language="javascript"] .chcb-language::before,
+.chcb-code-block[data-language="js"] .chcb-language::before { background: #F7DF1E; }
+.chcb-code-block[data-language="python"] .chcb-language::before { background: #3776AB; }
+.chcb-code-block[data-language="html"] .chcb-language::before,
+.chcb-code-block[data-language="markup"] .chcb-language::before { background: #E34C26; }
+.chcb-code-block[data-language="css"] .chcb-language::before { background: #1572B6; }
+.chcb-code-block[data-language="java"] .chcb-language::before { background: #007396; }
+.chcb-code-block[data-language="ruby"] .chcb-language::before { background: #CC342D; }
+.chcb-code-block[data-language="go"] .chcb-language::before { background: #00ADD8; }
+.chcb-code-block[data-language="rust"] .chcb-language::before { background: #CE422B; }
+.chcb-code-block[data-language="swift"] .chcb-language::before { background: #FA7343; }
+.chcb-code-block[data-language="typescript"] .chcb-language::before,
+.chcb-code-block[data-language="ts"] .chcb-language::before { background: #3178C6; }
+.chcb-code-block[data-language="sql"] .chcb-language::before { background: #336791; }
+.chcb-code-block[data-language="bash"] .chcb-language::before,
+.chcb-code-block[data-language="shell"] .chcb-language::before { background: #4EAA25; }
+
+/* Button Base Styles */
+.chcb-copy-btn,
+.chcb-fullscreen-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--chcb-copy-btn-bg);
+    color: var(--chcb-text-dark);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.chcb-theme-light .chcb-copy-btn,
+.chcb-theme-light .chcb-fullscreen-btn {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--chcb-text-light);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.chcb-copy-btn:hover,
+.chcb-fullscreen-btn:hover {
+    background: var(--chcb-copy-btn-hover);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.chcb-theme-light .chcb-copy-btn:hover,
+.chcb-theme-light .chcb-fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+.chcb-copy-btn:active,
+.chcb-fullscreen-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Fullscreen Button Specific */
+.chcb-fullscreen-btn {
+    padding: 6px;
+    min-width: 32px;
+    justify-content: center;
+}
+
+/* Copy Button Icon */
+.chcb-copy-btn::before {
+    content: "=�";
+    font-size: 14px;
+}
+
+/* Copied State */
+.chcb-copy-btn.copied {
+    background: #2196F3;
+    animation: copySuccess 0.3s ease;
+}
+
+.chcb-copy-btn.copied::before {
+    content: "";
+}
+
+@keyframes copySuccess {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Error State */
+.chcb-copy-btn.error {
+    background: #f44336;
+    animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    25% {
+        transform: translateX(-2px);
+    }
+    75% {
+        transform: translateX(2px);
+    }
+}
+
+/* Icon Container */
+.chcb-icon-container {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    position: relative;
+}
+
+/* SVG Icons */
+.chcb-icon {
+    fill: currentColor;
+    vertical-align: middle;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.chcb-icon-copy {
+    transform: scale(1);
+}
+
+.chcb-icon-check {
+    transform: scale(0.8);
+    opacity: 0;
+}
+
+.chcb-icon-error {
+    transform: scale(0.8);
+    opacity: 0;
+}
+
+/* Button Text */
+.chcb-btn-text {
+    white-space: nowrap;
+    transition: opacity 0.2s ease;
+}
+
+/* Updated Copied State */
+.chcb-copy-btn.copied {
+    background: #4CAF50 !important;
+    border-color: #4CAF50 !important;
+}
+
+.chcb-copy-btn.copied .chcb-icon-copy {
+    transform: scale(0.8);
+    opacity: 0;
+}
+
+.chcb-copy-btn.copied .chcb-icon-check {
+    transform: scale(1);
+    opacity: 1;
+    animation: checkmark 0.3s ease;
+}
+
+@keyframes checkmark {
+    0% {
+        transform: scale(0) rotate(-45deg);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2) rotate(0deg);
+    }
+    100% {
+        transform: scale(1) rotate(0deg);
+        opacity: 1;
+    }
+}
+
+/* Updated Error State */
+.chcb-copy-btn.error {
+    background: #f44336 !important;
+    border-color: #f44336 !important;
+}
+
+.chcb-copy-btn.error .chcb-icon-copy {
+    transform: scale(0.8);
+    opacity: 0;
+}
+
+.chcb-copy-btn.error .chcb-icon-error {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Ripple Effect */
+.chcb-ripple {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.5);
+    animation: ripple 0.6s ease-out;
+    pointer-events: none;
+}
+
+@keyframes ripple {
+    to {
+        width: 100px;
+        height: 100px;
+        opacity: 0;
+    }
+}
+
+/* Tooltip */
+.chcb-copy-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 1000;
+}
+
+.chcb-copy-tooltip.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-2px);
+}
+
+.chcb-copy-tooltip.error {
+    background: #f44336;
+}
+
+.chcb-copy-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: #333;
+}
+
+.chcb-copy-tooltip.error::after {
+    border-top-color: #f44336;
+}
+
+/* Keyboard Copy Notification */
+.chcb-keyboard-copy-notification {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(76, 175, 80, 0.95);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: slideInFade 0.3s ease;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+/* ================================
+   Fullscreen Mode Styles
+   ================================ */
+.chcb-code-block.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 999999;
+    margin: 0;
+    border-radius: 0;
+    max-width: none;
+    width: 100vw;
+    height: 100vh;
+    animation: fullscreenIn 0.3s ease;
+}
+
+@keyframes fullscreenIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.chcb-code-block.fullscreen pre {
+    max-height: calc(100vh - 60px);
+    height: calc(100vh - 60px);
+    overflow: auto;
+}
+
+/* Exit Fullscreen Hint */
+.chcb-code-block.fullscreen .chcb-header::after {
+    content: "Press ESC to exit fullscreen";
+    position: absolute;
+    right: 50%;
+    transform: translateX(50%);
+    font-size: 11px;
+    opacity: 0.6;
+    font-weight: normal;
+    letter-spacing: 0.5px;
+}
+
+/* Fullscreen Icon Change */
+.chcb-code-block.fullscreen .chcb-fullscreen-btn .chcb-icon-expand {
+    display: none;
+}
+
+.chcb-code-block.fullscreen .chcb-fullscreen-btn .chcb-icon-compress {
+    display: inline-block;
+}
+
+@keyframes slideInFade {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* ================================
+   Code Area Styles
+   ================================ */
+.chcb-code-block pre {
+    margin: 0 !important;
+    padding: 1.5em !important;
+    border-radius: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    overflow-x: auto;
+    max-height: 600px;
+    position: relative;
+}
+
+.chcb-code-block pre[class*="language-"] {
+    margin: 0;
+    padding: 1.5em;
+    background: var(--chcb-bg-dark);
+}
+
+.chcb-theme-light .chcb-code-block pre[class*="language-"] {
+    background: var(--chcb-bg-light);
+}
+
+.chcb-code-block code {
+    font-family: 'Fira Code', 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    tab-size: 4;
+    font-variant-ligatures: contextual;
+}
+
+/* Line Hover Effect */
+.chcb-code-block pre code .token-line:hover {
+    background: var(--chcb-line-highlight);
+    margin: 0 -1.5em;
+    padding: 0 1.5em;
+    display: block;
+}
+
+/* ================================
+   Line Numbers Support
+   ================================ */
+.chcb-code-block pre.line-numbers {
+    padding-left: 3.8em !important;
+    counter-reset: linenumber;
+}
+
+.chcb-code-block .line-numbers-rows {
+    position: absolute;
+    pointer-events: none;
+    top: 1.5em;
+    font-size: 100%;
+    left: 0;
+    width: 3em;
+    letter-spacing: -1px;
+    border-right: 1px solid var(--chcb-border-dark);
+    user-select: none;
+}
+
+.chcb-theme-light .line-numbers-rows {
+    border-right: 1px solid var(--chcb-border-light);
+}
+
+.line-numbers-rows > span {
+    display: block;
+    counter-increment: linenumber;
+    padding-right: 0.8em;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.3);
+    line-height: 1.6;
+}
+
+.chcb-theme-light .line-numbers-rows > span {
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.line-numbers-rows > span::before {
+    content: counter(linenumber);
+}
+
+/* ================================
+   Scrollbar Styling
+   ================================ */
+.chcb-code-block pre::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+}
+
+.chcb-code-block pre::-webkit-scrollbar-track {
+    background: var(--chcb-scrollbar-bg);
+}
+
+.chcb-code-block pre::-webkit-scrollbar-thumb {
+    background: var(--chcb-scrollbar-thumb);
+    border-radius: 4px;
+}
+
+.chcb-code-block pre::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.chcb-theme-light .chcb-code-block pre::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.chcb-theme-light .chcb-code-block pre::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.chcb-theme-light .chcb-code-block pre::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* ================================
+   Light Theme Adjustments
+   ================================ */
+.chcb-code-block.light-theme {
+    background: #f5f5f5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.chcb-code-block.light-theme .chcb-header {
+    background: linear-gradient(to bottom, #fafafa, #f5f5f5);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.chcb-code-block.light-theme .chcb-language {
+    color: #333;
+}
+
+.chcb-code-block.light-theme .chcb-copy-btn {
+    background: rgba(0, 0, 0, 0.05);
+    color: #333;
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.chcb-code-block.light-theme .chcb-copy-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+.chcb-code-block.light-theme pre[class*="language-"] {
+    background: #f5f5f5;
+}
+
+/* ================================
+   Prism Theme Overrides
+   ================================ */
+.chcb-code-block pre[class*="language-"],
+.chcb-code-block code[class*="language-"] {
+    text-shadow: none;
+}
+
+/* Toolbar positioning fix */
+.chcb-code-block div.code-toolbar > .toolbar {
+    position: absolute;
+    top: 0.3em;
+    right: 0.3em;
+    opacity: 1;
+}
+
+/* Hide default Prism toolbar when using custom header */
+.chcb-code-block.has-header div.code-toolbar > .toolbar {
+    display: none;
+}
+
+/* ================================
+   Inline Code Styles
+   ================================ */
+code.chcb-inline {
+    background: rgba(139, 92, 246, 0.1);
+    color: #8b5cf6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* Dark mode inline code */
+.dark-mode code.chcb-inline,
+body.dark code.chcb-inline,
+.chcb-theme-dark code.chcb-inline {
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+}
+
+/* ================================
+   Responsive Design
+   ================================ */
+@media (max-width: 768px) {
+    .chcb-code-block {
+        margin: 1.5em -15px;
+        border-radius: 0;
+    }
+    
+    .chcb-header {
+        padding: 10px 12px;
+        min-height: 44px;
+    }
+    
+    .chcb-language {
+        font-size: 11px;
+        gap: 6px;
+    }
+    
+    .chcb-copy-btn,
+    .chcb-fullscreen-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+    
+    .chcb-fullscreen-btn {
+        padding: 6px;
+    }
+    
+    .chcb-controls {
+        gap: 6px;
+    }
+    
+    .chcb-icon {
+        width: 14px;
+        height: 14px;
+    }
+    
+    .chcb-code-block code {
+        font-size: 14px;
+    }
+    
+    .chcb-code-block pre {
+        padding: 1em !important;
+    }
+    
+    .chcb-copy-tooltip {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+    
+    /* Hide fullscreen hint on mobile */
+    .chcb-code-block.fullscreen .chcb-header::after {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .chcb-btn-text {
+        display: none;
+    }
+    
+    .chcb-copy-btn,
+    .chcb-fullscreen-btn {
+        padding: 8px;
+        min-width: 36px;
+        justify-content: center;
+    }
+    
+    .chcb-language {
+        font-size: 10px;
+    }
+    
+    .chcb-language::before {
+        width: 6px;
+        height: 6px;
+    }
+    
+    .chcb-icon-container {
+        margin: 0;
+    }
+}
+
+/* Touch Device Enhancements */
+@media (hover: none) and (pointer: coarse) {
+    .chcb-copy-btn {
+        padding: 8px 14px;
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .chcb-icon {
+        width: 18px;
+        height: 18px;
+    }
+}
+
+/* ================================
+   Print Styles
+   ================================ */
+@media print {
+    .chcb-copy-btn,
+    .chcb-fullscreen-btn,
+    .chcb-controls {
+        display: none !important;
+    }
+    
+    .chcb-code-block {
+        box-shadow: none;
+        border: 1px solid #ddd;
+        page-break-inside: avoid;
+    }
+    
+    .chcb-code-block pre {
+        max-height: none;
+        overflow: visible;
+    }
+    
+    .chcb-header {
+        background: #f5f5f5 !important;
+        color: #333 !important;
+        border-bottom: 1px solid #ddd !important;
+    }
+    
+    .chcb-language {
+        color: #333 !important;
+    }
+    
+    .chcb-language::before {
+        background: #333 !important;
+    }
+}
+
+/* ================================
+   Accessibility
+   ================================ */
+.chcb-copy-btn:focus {
+    outline: 2px solid #4CAF50;
+    outline-offset: 2px;
+}
+
+.chcb-copy-btn:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* Screen reader only text */
+.chcb-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ================================
+   Loading State
+   ================================ */
+.chcb-code-block.loading {
+    position: relative;
+    min-height: 100px;
+}
+
+.chcb-code-block.loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #4CAF50;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ================================
+   Custom Language Specific Styles
+   ================================ */
+.chcb-code-block[data-language="html"] .chcb-language::before,
+.chcb-code-block[data-language="markup"] .chcb-language::before {
+    content: "</>";
+}
+
+.chcb-code-block[data-language="css"] .chcb-language::before {
+    content: "{ }";
+}
+
+.chcb-code-block[data-language="javascript"] .chcb-language::before,
+.chcb-code-block[data-language="js"] .chcb-language::before {
+    content: "JS";
+    font-weight: bold;
+}
+
+.chcb-code-block[data-language="php"] .chcb-language::before {
+    content: "<?";
+}
+
+.chcb-code-block[data-language="python"] .chcb-language::before {
+    content: "=";
+}
+
+.chcb-code-block[data-language="sql"] .chcb-language::before {
+    content: "=�";
+}
+
+.chcb-code-block[data-language="bash"] .chcb-language::before,
+.chcb-code-block[data-language="shell"] .chcb-language::before {
+    content: "$";
+}
+
+/* ================================
+   WordPress Admin Compatibility
+   ================================ */
+.wp-admin .chcb-code-block {
+    margin: 1em 0;
+}
+
+.block-editor-block-list__layout .chcb-code-block {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* ================================
+   Animation Classes
+   ================================ */
+.chcb-fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ================================
+   Utility Classes
+   ================================ */
+.chcb-no-wrap {
+    white-space: nowrap;
+}
+
+.chcb-overflow-auto {
+    overflow: auto;
+}
+
+.chcb-text-center {
+    text-align: center;
+}
+
+.chcb-hidden {
+    display: none !important;
+}
+
+/* ================================
+   Enhanced Accessibility
+   ================================ */
+.chcb-copy-btn:focus-visible {
+    outline: 2px solid #4CAF50;
+    outline-offset: 2px;
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+    .chcb-copy-btn {
+        border-width: 2px;
+    }
+    
+    .chcb-copy-tooltip {
+        border: 1px solid currentColor;
+    }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+    .chcb-copy-btn,
+    .chcb-icon,
+    .chcb-copy-tooltip,
+    .chcb-ripple,
+    .chcb-keyboard-copy-notification,
+    .chcb-fade-in {
+        animation: none !important;
+        transition: none !important;
+    }
+    
+    .chcb-copy-btn.copied,
+    .chcb-copy-btn.error {
+        animation: none !important;
+    }
+    
+    @keyframes * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

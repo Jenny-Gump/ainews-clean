@@ -1,26 +1,27 @@
-# Enhanced MVP Logging System v2.0
+# Enhanced MVP Logging System v2.1
 
 ## Overview
 
-Улучшенная система логирования для AI News Parser Clean.  
+Улучшенная система логирования для AI News Parser Clean с интеграцией Change Tracking.  
 **Принцип**: Логировать все критические операции с детальными метриками.
 
 ## Features
 
-- ✅ **Простой logger** - 132 строки кода с полным покрытием
+- ✅ **Простой logger** - 171 строка кода с полным покрытием
 - ✅ **2 лог файла** - operations.jsonl и errors.jsonl
 - ✅ **Критические метрики** - стоимость API, время фаз, ошибки
 - ✅ **Минимальный overhead** - без сложных абстракций
 - 🆕 **LLM tracking** - точное отслеживание моделей и токенов
 - 🆕 **Database performance** - мониторинг медленных запросов
 - 🆕 **Error categorization** - детальные причины ошибок
+- 🆕 **Change Tracking** - мониторинг извлечения URL из источников
 
 ## Architecture
 
 ```
 app_logging/
 ├── __init__.py      # 4 экспорта
-├── logger.py        # 70 строк MVP кода
+├── logger.py        # 171 строк MVP кода
 ├── config.json      # 5 строк конфигурации
 └── README.md        # Эта документация
 ```
@@ -112,6 +113,23 @@ log_operation('media_download',
     success=True,
     source_id='techcrunch'
 )
+
+# Log change tracking operations
+log_operation('change_tracking_urls_extracted',
+    phase='change_tracking',
+    source_url='https://anthropic.com/news',
+    urls_found=27,
+    source_domain='anthropic',
+    success=True
+)
+
+log_operation('change_tracking_source_changed',
+    phase='change_tracking',
+    source_id='anthropic',
+    url='https://anthropic.com/news',
+    urls_found=5,
+    success=True
+)
 ```
 
 ### Error Logging
@@ -178,6 +196,7 @@ log_error('api_error',
 - **processing_stage** - этап обработки
 - **query_type/table_name** - для database операций
 - **file_size_mb/width/height** - для media операций
+- **urls_found/source_domain** - для change tracking операций
 
 ## Configuration
 
@@ -208,6 +227,13 @@ with open('logs/errors.jsonl', 'r') as f:
         error = json.loads(line)
         if error['error_type'] == 'api_error':
             send_alert(error)
+
+# Analyze change tracking efficiency
+with open('logs/operations.jsonl', 'r') as f:
+    for line in f:
+        op = json.loads(line)
+        if op.get('operation') == 'change_tracking_urls_extracted':
+            print(f"{op['source_domain']}: {op['urls_found']} URLs")
 ```
 
 ## Migration from Old System
@@ -255,9 +281,39 @@ with open('logs/errors.jsonl', 'r') as f:
 | news_discovery.py | 100% | ✅ Crawl & discovery tracking |
 | database.py | 90% | ✅ Performance & health checks |
 | firecrawl_client.py | 100% | ✅ All API calls tracked |
+| change_tracking/monitor.py | 100% | ✅ All scan operations logged |
+| change_tracking/url_extractor.py | 100% | ✅ URL extraction tracked |
+| rss_discovery.py | 100% | ✅ RSS source monitoring |
+| single_pipeline.py | 100% | ✅ Pipeline phases tracked |
+
+## Change Tracking Operations
+
+### Available Operations
+- `change_tracking_urls_extracted` - URL extraction from source pages
+- `change_tracking_source_start` - Start scanning a source
+- `change_tracking_source_changed` - Source has new/changed content
+- `change_tracking_source_unchanged` - Source has no changes
+- `change_tracking_source_error` - Error scanning source
+- `change_tracking_batch_progress` - Batch processing progress
+- `change_tracking_batch_complete` - Batch processing completed
+- `change_tracking_scan_summary` - Overall scan statistics
+- `change_tracking_export_url` - URL exported to main pipeline
+- `change_tracking_export_summary` - Export operation summary
+
+### Analysis Commands
+```bash
+# View URL extraction in real-time
+tail -f logs/operations.jsonl | grep "urls_extracted"
+
+# Statistics by source
+cat logs/operations.jsonl | grep "urls_extracted" | jq '{source: .source_domain, urls: .urls_found}'
+
+# Top sources by URLs found
+cat logs/operations.jsonl | jq 'select(.operation=="change_tracking_urls_extracted") | {source: .source_domain, urls: .urls_found}' | jq -s 'group_by(.source) | map({source: .[0].source, total: map(.urls) | add}) | sort_by(.total) | reverse'
+```
 
 ---
 
-**Version**: 2.0 Enhanced  
-**Updated**: August 7, 2025  
+**Version**: 2.1 Change Tracking Integration  
+**Updated**: August 12, 2025  
 **Author**: AI Assistant

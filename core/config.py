@@ -17,6 +17,9 @@ class Config:
     FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY')
     EXTRACT_API_URL = "https://api.firecrawl.dev/v1/extract"
     
+    # DeepSeek API настройки для контента и перевода
+    DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+    
     # OpenAI API настройки для WordPress
     openai_api_key = os.getenv('OPENAI_API_KEY')
     wordpress_llm_model = os.getenv('WORDPRESS_LLM_MODEL', 'gpt-4o-mini')
@@ -46,21 +49,27 @@ class Config:
     MIN_IMAGE_WIDTH = 250   # Минимальная ширина 250px
     MIN_IMAGE_HEIGHT = 250  # Минимальная высота 250px
     
-    # База данных (общая с основной системой)
-    DATABASE_PATH = "data/ainews.db"
+    # База данных - Supabase через MCP
+    USE_SUPABASE_MCP = True
+    SUPABASE_PROJECT_REF = os.getenv('SUPABASE_PROJECT_REF', 'mtguynupyltlqiwhmilc')
+    SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://mtguynupyltlqiwhmilc.supabase.co')
+    SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY', '')
+    SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+    
+    # SQLite ПОЛНОСТЬЮ ОТКЛЮЧЕН - используется только Supabase
     
     # Папки
     MEDIA_DIR = "data/media"
-    LOGS_DIR = "extract_system/logs"
+    LOGS_DIR = "logs"
     
     # RSS настройки
-    RSS_SOURCES_FILE = "extract_system/sources_extract.json"
+    RSS_SOURCES_FILE = "services/sources_extract.json"
     DEFAULT_DAYS_BACK = 7
     RSS_BATCH_SIZE = 10
     
     # Мониторинг
     MONITORING_ENABLED = True
-    LOGGING_PREFIX = "extract_system"
+    LOGGING_PREFIX = "ainews_clean"
     
     # Extract API Schema (оптимизированная для новостей)
     EXTRACT_SCHEMA = {
@@ -98,16 +107,6 @@ class Config:
                 "type": "array",
                 "items": {"type": "string"}
             },
-            "related_links": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string"},
-                        "url": {"type": "string"}
-                    }
-                }
-            },
             "meta_description": {"type": "string"}
         }
     }
@@ -130,17 +129,32 @@ class Config:
         if not cls.FIRECRAWL_API_KEY:
             errors.append("FIRECRAWL_API_KEY не найден в переменных окружения")
         
+        if not cls.DEEPSEEK_API_KEY:
+            errors.append("DEEPSEEK_API_KEY не найден в переменных окружения")
+        
         if not cls.openai_api_key:
             errors.append("OPENAI_API_KEY не найден в переменных окружения")
         
         return errors
     
     @classmethod
+    def get_supabase_config(cls):
+        """Возвращает конфигурацию Supabase"""
+        return {
+            "project_ref": cls.SUPABASE_PROJECT_REF,
+            "url": cls.SUPABASE_URL,
+            "anon_key": cls.SUPABASE_ANON_KEY,
+            "service_role_key": cls.SUPABASE_SERVICE_ROLE_KEY,
+            "use_mcp": cls.USE_SUPABASE_MCP
+        }
+    
+    @classmethod
     def get_summary(cls):
         """Возвращает сводку конфигурации"""
         return {
             "api_configured": bool(cls.FIRECRAWL_API_KEY),
-            "database_path": cls.DATABASE_PATH,
+            "database_type": "Supabase",
+            "supabase_project": cls.SUPABASE_PROJECT_REF,
             "media_dir": cls.MEDIA_DIR,
             "sources_file": cls.RSS_SOURCES_FILE,
             "request_timeout": cls.REQUEST_TIMEOUT,

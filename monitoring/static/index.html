@@ -1208,6 +1208,8 @@
                 // Show results
                 if (result.deleted > 0) {
                     showNotification(`Successfully deleted ${result.deleted} article${result.deleted !== 1 ? 's' : ''}`, 'success');
+                } else if (result.not_found && result.not_found.length > 0) {
+                    showNotification(`${result.not_found.length} article${result.not_found.length !== 1 ? 's' : ''} were already deleted or not found`, 'warning');
                 }
                 
                 if (result.failed && result.failed.length > 0) {
@@ -1633,15 +1635,18 @@
         // Close dropdowns when clicking outside
         document.addEventListener('click', function(event) {
             const sourceDropdown = document.getElementById('source-filter-dropdown');
+            const typeDropdown = document.getElementById('type-filter-dropdown');
             const dateDropdown = document.getElementById('date-filter-dropdown');
             const statusDropdown = document.getElementById('status-filter-dropdown');
             
             const sourceBtn = document.getElementById('source-filter-btn');
+            const typeBtn = document.getElementById('type-filter-btn');
             const dateBtn = document.getElementById('date-filter-btn');
             const statusBtn = document.getElementById('status-filter-btn');
             
             // Check if click is outside all filter elements
             if (!sourceDropdown.contains(event.target) && !sourceBtn.contains(event.target) &&
+                !typeDropdown.contains(event.target) && !typeBtn.contains(event.target) &&
                 !dateDropdown.contains(event.target) && !dateBtn.contains(event.target) &&
                 !statusDropdown.contains(event.target) && !statusBtn.contains(event.target)) {
                 hideAllFilterDropdowns();
@@ -1860,6 +1865,7 @@
                         `;
                     }
                 }
+                
             } catch (error) {
                 console.error('Error loading memory data:', error);
             } finally {
@@ -1867,6 +1873,7 @@
                 isLoadingMemoryData = false;
             }
         }
+        
 
         async function loadErrorsData() {
             console.log('Loading errors data...');
@@ -2866,9 +2873,9 @@
                 updateExtractButtonStates();
             }, 5000);
             
-            // Set up refresh interval - only for non-control tabs
+            // Set up refresh interval - only for non-control tabs (excluding articles)
             refreshInterval = setInterval(() => {
-                if (!logsPaused && currentTab !== 'control') {
+                if (!logsPaused && currentTab !== 'control' && currentTab !== 'articles') {
                     loadTabData(currentTab);
                 }
             }, 120000); // 2 minutes
@@ -3170,7 +3177,8 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
     <!-- <script src="/static/monitoring.js"></script> -->
     
     <!-- Pipeline Logs for single pipeline integration -->
-    <script src="/static/pipeline-logs.js?v=2.0"></script>
+    <script src="/static/pipeline-logs.js?v=2.1"></script>
+    <script src="/static/supabase-client.js"></script>
     
     <script>
         // WebSocket for system metrics updates

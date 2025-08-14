@@ -1,0 +1,118 @@
+/**
+ * Code Highlighter Copy - Custom Variables
+ * CSS Variables for easy theme customization
+ */
+
+:root {
+    /* Dark theme colors */
+    --chcb-bg-dark: #1e1e1e;
+    --chcb-header-dark-from: #2d3748;
+    --chcb-header-dark-to: #1a202c;
+    --chcb-text-dark: #ffffff;
+    --chcb-border-dark: rgba(255, 255, 255, 0.1);
+    
+    /* Light theme colors */
+    --chcb-bg-light: #f8f9fa;
+    --chcb-header-light-from: #e2e8f0;
+    --chcb-header-light-to: #cbd5e0;
+    --chcb-text-light: #2d3748;
+    --chcb-border-light: rgba(0, 0, 0, 0.1);
+    
+    /* Button colors */
+    --chcb-copy-btn-bg: rgba(255, 255, 255, 0.1);
+    --chcb-copy-btn-hover: rgba(255, 255, 255, 0.2);
+    --chcb-copy-btn-active: rgba(255, 255, 255, 0.3);
+    
+    /* Status colors */
+    --chcb-success-color: #4CAF50;
+    --chcb-error-color: #f44336;
+    --chcb-warning-color: #ff9800;
+    --chcb-info-color: #2196F3;
+    
+    /* Scrollbar colors */
+    --chcb-scrollbar-bg: rgba(255, 255, 255, 0.05);
+    --chcb-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --chcb-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+    
+    /* Line highlight */
+    --chcb-line-highlight: rgba(255, 255, 255, 0.05);
+    --chcb-line-highlight-hover: rgba(255, 255, 255, 0.08);
+    
+    /* Typography */
+    --chcb-font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+    --chcb-font-size: 14px;
+    --chcb-line-height: 1.6;
+    
+    /* Spacing */
+    --chcb-padding: 1.5em;
+    --chcb-header-padding: 12px 16px;
+    --chcb-button-padding: 6px 12px;
+    
+    /* Border radius */
+    --chcb-border-radius: 12px;
+    --chcb-button-radius: 6px;
+    
+    /* Transitions */
+    --chcb-transition-fast: 0.2s ease;
+    --chcb-transition-normal: 0.3s ease;
+    --chcb-transition-slow: 0.5s ease;
+    
+    /* Shadows */
+    --chcb-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+    --chcb-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --chcb-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Theme-specific overrides */
+/* Twenty Twenty-One */
+.theme-twentytwentyone .chcb-code-block {
+    --chcb-border-radius: 0;
+    --chcb-font-family: var(--global--font-secondary, 'Fira Code', monospace);
+}
+
+/* Twenty Twenty-Two */
+.theme-twentytwentytwo .chcb-code-block {
+    --chcb-padding: var(--wp--preset--spacing--40, 1.5em);
+}
+
+/* Astra Theme */
+.ast-theme-transparent-header .chcb-code-block {
+    --chcb-bg-dark: #1a1a1a;
+}
+
+/* GeneratePress */
+.generate-theme .chcb-code-block {
+    --chcb-font-size: inherit;
+}
+
+/* OceanWP */
+.oceanwp-theme .chcb-code-block {
+    --chcb-border-radius: var(--border-radius, 12px);
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --chcb-line-highlight: rgba(255, 255, 255, 0.08);
+        --chcb-copy-btn-bg: rgba(255, 255, 255, 0.15);
+    }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    :root {
+        --chcb-border-dark: rgba(255, 255, 255, 0.5);
+        --chcb-border-light: rgba(0, 0, 0, 0.5);
+        --chcb-text-dark: #ffffff;
+        --chcb-text-light: #000000;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --chcb-transition-fast: 0.01ms;
+        --chcb-transition-normal: 0.01ms;
+        --chcb-transition-slow: 0.01ms;
+    }
+}

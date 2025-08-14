@@ -1,0 +1,2 @@
+{"timestamp": "2025-08-14T07:40:38.312337", "operation": "continuous_pipeline_start", "mode": "continuous", "max_articles": null, "delay_between": 5}
+{"timestamp": "2025-08-14T07:40:38.318156", "operation": "continuous_pipeline_stop", "reason": "no_more_articles", "total_processed": 0, "total_duration_seconds": 0.005851030349731445}

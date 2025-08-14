@@ -13,11 +13,12 @@ import requests
 from requests.auth import HTTPBasicAuth
 import base64
 import mimetypes
+from pathlib import Path
 import os
 from openai import OpenAI
 from httpx import ReadError, ConnectError, TimeoutException
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from core.config import Config
 from app_logging import get_logger
 from services.prompts_loader import load_prompt
@@ -36,12 +37,12 @@ class WordPressPublisher:
         "Гаджеты", "Игры", "Разработка"
     ]
     
-    def __init__(self, config: Config, db: Database):
-        self.config = config
-        self.db = db
+    def __init__(self, config: Config = None, db = None):
+        self.config = config or Config()
+        self.db = db or DatabaseConfig.get_database()
         # DeepSeek API uses OpenAI-compatible client but different base URL
         self.deepseek_client = openai.OpenAI(
-            api_key=config.openai_api_key,
+            api_key=self.config.openai_api_key,
             base_url="https://api.deepseek.com"
         )
         # GPT-4o fallback client
@@ -119,34 +120,13 @@ class WordPressPublisher:
         
         return results
     
-    def _get_pending_articles(self, limit: int) -> List[Dict[str, Any]]:
-        """Get articles that are parsed but not yet translated"""
-        query = """
-        SELECT a.article_id, a.title, a.content, a.summary, a.tags, 
-               a.categories, a.language, a.url, a.source_id, a.published_date
-        FROM articles a
-        LEFT JOIN wordpress_articles w ON a.article_id = w.article_id
-        WHERE a.content_status = 'parsed' 
-          AND a.media_status = 'ready'
-          AND a.content IS NOT NULL
-          AND w.id IS NULL
-        ORDER BY a.published_date DESC
-        LIMIT ?
-        """
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(query, (limit,))
-            columns = [description[0] for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
     def _is_already_processed(self, article_id: str) -> bool:
         """Check if article already exists in wordpress_articles table"""
         with self.db.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT id FROM wordpress_articles WHERE article_id = ?",
-                (article_id,)
-            )
-            return cursor.fetchone() is not None
+            # Supabase connection - use proper method
+            wp_article = conn.get_wordpress_article(article_id)
+            return wp_article is not None and len(wp_article) > 0
     
     
     def _process_article_with_llm(self, article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -337,14 +317,14 @@ class WordPressPublisher:
             with open('data/wordpress_tags_clean.json', 'r', encoding='utf-8') as f:
                 existing_tags = json.load(f)
             
-            # Extract just tag names for the prompt
-            tag_names = [tag['name'] for tag in existing_tags]
+            # Create a dictionary of name->slug for the prompt to prevent duplicates
+            tag_dict = {tag['name']: tag['slug'] for tag in existing_tags}
             
             # Загружаем промпт из файла
             prompt = load_prompt('tag_generator',
                 title=translated_article['title'],
                 content=translated_article['content'][:2000],
-                available_tags=json.dumps(tag_names, ensure_ascii=False)
+                available_tags=json.dumps(tag_dict, ensure_ascii=False, indent=2)
             )
 
             response = None
@@ -587,81 +567,76 @@ class WordPressPublisher:
         if not wp_data.get('slug') or not re.match(r'^[a-z0-9-]+$', wp_data.get('slug', '')):
             wp_data['slug'] = self._generate_slug(wp_data['title'])
         
-        # Insert into wordpress_articles
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                INSERT INTO wordpress_articles (
-                    article_id, title, content, excerpt, slug,
-                    categories, tags, _yoast_wpseo_title, _yoast_wpseo_metadesc,
-                    focus_keyword, featured_image_index, images_data,
-                    translation_status, translated_at, source_language,
-                    target_language, llm_model
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                article_id,
-                wp_data['title'],
-                wp_data['content'],
-                wp_data.get('excerpt'),
-                wp_data['slug'],
-                json.dumps(wp_data.get('categories', []), ensure_ascii=False),
-                json.dumps(wp_data.get('tags', []), ensure_ascii=False),
-                wp_data.get('_yoast_wpseo_title'),
-                wp_data.get('_yoast_wpseo_metadesc'),
-                wp_data.get('focus_keyword'),
-                0,  # featured_image_index - no images
-                '{}',  # images_data - empty
-                'translated',
-                datetime.now(),
-                wp_data.get('source_language', 'en'),
-                'ru',
-                wp_data.get('llm_model')
-            ))
-            
-            # Update article status to 'published' in articles table
-            conn.execute("""
-                UPDATE articles 
-                SET content_status = 'published' 
-                WHERE article_id = ?
-            """, (article_id,))
-        logger.info(f"Saved WordPress article for {article_id} and marked as published")
+        # Check if we're using Supabase or SQLite
+        if hasattr(self.db, 'client'):
+            # Supabase - use REST API
+            try:
+                wp_insert_data = {
+                    'article_id': article_id,
+                    'title': wp_data['title'],
+                    'content': wp_data['content'],
+                    'excerpt': wp_data.get('excerpt'),
+                    'slug': wp_data['slug'],
+                    'categories': wp_data.get('categories', []),
+                    'tags': wp_data.get('tags', []),
+                    '_yoast_wpseo_title': wp_data.get('_yoast_wpseo_title'),
+                    '_yoast_wpseo_metadesc': wp_data.get('_yoast_wpseo_metadesc'),
+                    'focus_keyword': wp_data.get('focus_keyword'),
+                    'featured_image_index': 0,
+                    'images_data': {},
+                    'translation_status': 'translated',
+                    'translated_at': datetime.now().isoformat(),
+                    'source_language': wp_data.get('source_language', 'en'),
+                    'target_language': 'ru',
+                    'llm_model': wp_data.get('llm_model')
+                }
+                
+                # Insert into wordpress_articles
+                result = self.db.client.table('wordpress_articles').insert(wp_insert_data).execute()
+                
+                if result.data:
+                    # Update article status to 'published' in articles table
+                    self.db.client.table('articles').update({
+                        'content_status': 'published'
+                    }).eq('article_id', article_id).execute()
+                    
+                    logger.info(f"Saved WordPress article for {article_id} and marked as published")
+                else:
+                    raise Exception("Failed to insert WordPress article data")
+                    
+            except Exception as e:
+                logger.error(f"Error saving WordPress article to Supabase: {e}")
+                raise
     
     def _save_failed_article(self, article_id: str, error: str) -> None:
         """Save failed translation attempt to wordpress_articles table"""
         try:
             # Get minimal article info for failed record
             with self.db.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT title FROM articles WHERE article_id = ?",
-                    (article_id,)
-                )
-                row = cursor.fetchone()
-                title = row[0] if row else "Unknown Article"
+                # Supabase connection - use proper method
+                article = conn.get_article(article_id)
+                title = article.get('title', 'Unknown Article') if article else "Unknown Article"
                 
-                # Insert failed record
-                conn.execute("""
-                    INSERT INTO wordpress_articles (
-                        article_id, title, content, slug,
-                        translation_status, translation_error, translated_at,
-                        target_language, llm_model
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    article_id,
-                    title,
-                    '',  # empty content
-                    self._generate_slug(title),
-                    'failed',
-                    error,
-                    datetime.now(),
-                    'ru',
-                    self.config.wordpress_llm_model
-                ))
+                # Insert failed record using Supabase
+                failed_data = {
+                    'article_id': article_id,
+                    'title': title,
+                    'content': '',  # empty content
+                    'slug': self._generate_slug(title),
+                    'translation_status': 'failed',
+                    'translation_error': error,
+                    'translated_at': datetime.now().isoformat(),
+                    'target_language': 'ru',
+                    'llm_model': self.config.wordpress_llm_model
+                }
+                
+                # Insert into wordpress_articles table
+                self.db.client.table('wordpress_articles').insert(failed_data).execute()
                 
                 # Update article status to 'failed' in articles table
-                conn.execute("""
-                    UPDATE articles 
-                    SET content_status = 'failed' 
-                    WHERE article_id = ?
-                """, (article_id,))
+                self.db.client.table('articles').update({
+                    'content_status': 'failed'
+                }).eq('article_id', article_id).execute()
             logger.info(f"Saved failed translation for {article_id}: {error}")
         except Exception as e:
             logger.error(f"Error saving failed article {article_id}: {str(e)}")
@@ -752,23 +727,6 @@ class WordPressPublisher:
         
         return results
     
-    def _get_unpublished_articles(self, limit: int) -> List[Dict[str, Any]]:
-        """Get translated articles that haven't been published to WordPress"""
-        query = """
-        SELECT id, article_id, title, content, excerpt, slug,
-               categories, tags, _yoast_wpseo_title, _yoast_wpseo_metadesc,
-               focus_keyword
-        FROM wordpress_articles
-        WHERE translation_status = 'translated' 
-          AND published_to_wp = 0
-        ORDER BY translated_at DESC
-        LIMIT ?
-        """
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(query, (limit,))
-            columns = [description[0] for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
     def _replace_image_placeholders(self, content: str, article_id: Optional[str]) -> str:
         """Replace [IMAGE_N] placeholders with actual HTML image tags
@@ -796,59 +754,57 @@ class WordPressPublisher:
         logger.info(f"Found {len(placeholders)} image placeholders to replace")
         
         try:
-            # Get images from database ordered by image_order
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT 
-                        COALESCE(wp_source_url, url) as display_url,
-                        alt_text,
-                        image_order,
-                        wp_media_id
-                    FROM media_files
-                    WHERE article_id = ?
-                      AND image_order IS NOT NULL
-                      AND image_order > 0
-                      AND status = 'completed'
-                    ORDER BY image_order
-                """, (article_id,))
+            # Get images from Supabase
+            media_files = self.db.get_article_media_files(article_id)
+            
+            # Фильтруем только завершенные медиафайлы с WordPress данными
+            completed_images = []
+            for i, media in enumerate(media_files, 1):
+                if (media.get('status') == 'completed' and 
+                    media.get('image_order') and 
+                    media.get('wp_source_url')):
+                    completed_images.append({
+                        'display_url': media.get('wp_source_url', media.get('url', '')),  # Приоритет WordPress URL
+                        'alt_text': media.get('alt_text', ''),
+                        'image_order': media.get('image_order', i),
+                        'wp_media_id': media.get('wp_media_id')
+                    })
+            
+            if not completed_images:
+                logger.warning(f"No completed images found for article {article_id}")
+                # Remove placeholders if no images
+                content = re.sub(placeholder_pattern, '', content)
+                return content
                 
-                images = cursor.fetchall()
+            # Create mapping of order to image data
+            image_map = {}
+            for img in completed_images:
+                image_map[str(img['image_order'])] = {
+                    'display_url': img['display_url'],
+                    'alt_text': img['alt_text'] or '',
+                    'wp_media_id': img['wp_media_id']
+                }
                 
-                if not images:
-                    logger.warning(f"No images with image_order found for article {article_id}")
-                    # Remove placeholders if no images
-                    content = re.sub(placeholder_pattern, '', content)
-                    return content
-                
-                # Create mapping of order to image data
-                image_map = {}
-                for img in images:
-                    image_map[str(img['image_order'])] = {
-                        'display_url': img['display_url'],
-                        'alt_text': img['alt_text'] or '',
-                        'wp_media_id': img['wp_media_id']
-                    }
-                
-                # Replace each placeholder
-                def replace_placeholder(match):
-                    order_num = match.group(1)
-                    if order_num in image_map:
-                        img_data = image_map[order_num]
-                        # WordPress-compatible HTML format with proper class
-                        wp_class = f"wp-image-{img_data['wp_media_id']}" if img_data['wp_media_id'] else "wp-image-auto"
-                        html = f'''<figure class="wp-block-image size-large">
+            # Replace each placeholder
+            def replace_placeholder(match):
+                order_num = match.group(1)
+                if order_num in image_map:
+                    img_data = image_map[order_num]
+                    # WordPress-compatible HTML format with proper class
+                    wp_class = f"wp-image-{img_data['wp_media_id']}" if img_data['wp_media_id'] else "wp-image-auto"
+                    html = f'''<figure class="wp-block-image size-large">
 <img src="{img_data['display_url']}" alt="{img_data['alt_text']}" class="{wp_class}"/>
 </figure>'''
-                        logger.info(f"Replaced [IMAGE_{order_num}] with image")
-                        return html
-                    else:
-                        logger.warning(f"No image found for [IMAGE_{order_num}]")
-                        return ''  # Remove placeholder if no matching image
+                    logger.info(f"Replaced [IMAGE_{order_num}] with image")
+                    return html
+                else:
+                    logger.warning(f"No image found for [IMAGE_{order_num}]")
+                    return ''  # Remove placeholder if no matching image
                 
-                # Replace all placeholders
-                content = re.sub(placeholder_pattern, replace_placeholder, content)
-                
-                logger.info(f"Successfully replaced {len(images)} image placeholders")
+            # Replace all placeholders
+            content = re.sub(placeholder_pattern, replace_placeholder, content)
+            
+            logger.info(f"Successfully replaced {len(completed_images)} image placeholders")
                 
         except Exception as e:
             logger.error(f"Error replacing image placeholders: {e}")
@@ -856,6 +812,68 @@ class WordPressPublisher:
             content = re.sub(placeholder_pattern, '', content)
             
         return content
+    
+    def _upload_media_to_wordpress(self, file_path: str, post_id: int, alt_text: str = '', caption: str = '') -> Optional[Dict[str, Any]]:
+        """Загружает медиафайл в WordPress Media Library
+        
+        Returns:
+            Dict with wp_media_id, wp_url, filename if successful, None otherwise
+        """
+        try:
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                logger.error(f"Media file not found: {file_path}")
+                return None
+                
+            filename = file_path_obj.name
+            mime_type, _ = mimetypes.guess_type(str(file_path_obj))
+            if not mime_type:
+                mime_type = 'image/jpeg'  # Default
+                
+            logger.info(f"Uploading media to WordPress: {filename} ({mime_type})")
+            
+            # Read file content
+            with open(file_path_obj, 'rb') as media_file:
+                file_content = media_file.read()
+            
+            # Upload to WordPress Media Library
+            upload_url = f"{self.config.wordpress_api_url}/media"
+            
+            files = {
+                'file': (filename, file_content, mime_type)
+            }
+            
+            data = {
+                'post': post_id,  # Associate with the post
+                'alt_text': alt_text,
+                'caption': caption,
+                'status': 'publish'
+            }
+            
+            response = requests.post(
+                upload_url,
+                files=files,
+                data=data,
+                auth=HTTPBasicAuth(self.config.wordpress_username, self.config.wordpress_app_password),
+                timeout=60
+            )
+            
+            if response.status_code == 201:
+                media_data = response.json()
+                result = {
+                    'wp_media_id': media_data['id'],
+                    'wp_url': media_data['source_url'],
+                    'filename': filename
+                }
+                logger.info(f"✅ Successfully uploaded to WordPress Media Library: ID {result['wp_media_id']}")
+                return result
+            else:
+                logger.error(f"Failed to upload media to WordPress: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error uploading media to WordPress: {e}")
+            return None
     
     def _prepare_wordpress_post(self, article: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare article data for WordPress API"""
@@ -1067,15 +1085,29 @@ class WordPressPublisher:
     
     def _mark_as_published(self, wordpress_article_id: int, wp_post_id: int) -> None:
         """Mark article as published in database"""
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                UPDATE wordpress_articles
-                SET published_to_wp = 1,
-                    wp_post_id = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (wp_post_id, wordpress_article_id))
-        logger.info(f"Marked article {wordpress_article_id} as published with WP ID {wp_post_id}")
+        
+        # Check if we're using Supabase or SQLite
+        if hasattr(self.db, 'client'):
+            # Supabase - use REST API
+            try:
+                update_data = {
+                    'published_to_wp': True,
+                    'wp_post_id': wp_post_id,
+                    'updated_at': datetime.now().isoformat()
+                }
+                
+                result = self.db.client.table('wordpress_articles').update(update_data).eq(
+                    'id', wordpress_article_id
+                ).execute()
+                
+                if result.data:
+                    logger.info(f"Marked article {wordpress_article_id} as published with WP ID {wp_post_id}")
+                else:
+                    raise Exception("Failed to mark article as published")
+                    
+            except Exception as e:
+                logger.error(f"Error marking article as published in Supabase: {e}")
+                raise
     
     def _update_post_content(self, wp_post_id: int, new_content: str) -> bool:
         """Обновляет контент существующего поста в WordPress
@@ -1182,89 +1214,94 @@ class WordPressPublisher:
     
     def _process_media_for_article(self, article_id: str, wp_post_id: int, article_title: str) -> bool:
         """Обрабатывает медиафайлы для только что опубликованной статьи"""
+        logger.info(f"DEBUG: _process_media_for_article called for article_id={article_id}, wp_post_id={wp_post_id}")
+        print(f"DEBUG PRINT: _process_media_for_article called for {article_id}")
         try:
-            # Проверяем наличие медиафайлов
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT COUNT(*) 
-                    FROM media_files 
-                    WHERE article_id = ? 
-                      AND file_path IS NOT NULL
-                """, (article_id,))
-                media_count = cursor.fetchone()[0]
-                
-                if media_count == 0:
-                    logger.info(f"No media files found for article {article_id}")
-                    return True
-                
-                logger.info(f"Found {media_count} media files for article {article_id}")
-                
-                # Получаем медиафайлы для загрузки
-                media_files = self._get_media_for_upload(article_id)
-                
-                if not media_files:
-                    logger.info(f"All media files already uploaded for article {article_id}")
-                    # ОТКЛЮЧЕНО: Старая система вставки изображений
-                    # Теперь используем систему меток [IMAGE_N] которые заменяются в _prepare_wordpress_post
-                    # insert_result = self._insert_images_into_post(wp_post_id, article_id)
-                    # if not insert_result:
-                    #     logger.warning(f"Failed to insert images into post {wp_post_id}")
-                    return True
-                
-                uploaded_media_ids = []
-                
-                for i, media in enumerate(media_files):
-                    try:
-                        # Пауза между медиафайлами (кроме первого)
-                        if i > 0:
-                            import time
-                            logger.info("Waiting 3 seconds before next media file...")
-                            time.sleep(3)
-                        
-                        # Подготовка метаданных для перевода
-                        metadata_to_translate = {
-                            'alt_text': media.get('alt_text', ''),
-                            'caption': media.get('caption', ''),
-                            'article_title': article_title
-                        }
-                        
-                        # Переводим метаданные
-                        translated = self._translate_media_metadata(metadata_to_translate)
-                        
-                        if translated:
-                            # Загружаем файл в WordPress
-                            wp_media_id = self._upload_single_media(
-                                file_path=media['file_path'],
-                                post_id=wp_post_id,
-                                metadata=translated
-                            )
-                            
-                            if wp_media_id:
-                                # Сохраняем результат в БД
-                                self._save_media_upload_result(
-                                    media['media_id'], 
-                                    wp_media_id,
-                                    translated.get('alt_text_ru'),
-                                    None  # No caption translation
-                                )
-                                uploaded_media_ids.append(wp_media_id)
-                                logger.info(f"Successfully uploaded media {media['media_id']} as WP media {wp_media_id}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing media {media.get('media_id')}: {str(e)}")
-                
-                # ОТКЛЮЧЕНО: Старая система вставки изображений
-                # Теперь изображения вставляются через метки [IMAGE_N] в _prepare_wordpress_post
-                # if uploaded_media_ids:
-                #     logger.info(f"Inserting {len(uploaded_media_ids)} images into post {wp_post_id}")
-                #     insert_result = self._insert_images_into_post(wp_post_id, article_id)
-                #     if not insert_result:
-                #         logger.warning(f"Failed to insert images into post {wp_post_id}")
-                
-                if uploaded_media_ids:
-                    logger.info(f"Successfully uploaded {len(uploaded_media_ids)} media files, images inserted via [IMAGE_N] placeholders")
-                    
+            # Получаем медиафайлы для статьи через Supabase
+            media_files = self.db.get_article_media_files(article_id)
+            
+            # Фильтруем только завершенные медиафайлы с локальными путями
+            completed_media = []
+            for media in media_files:
+                if (media.get('status') == 'completed' and 
+                    media.get('file_path') and 
+                    Path(media.get('file_path')).exists()):
+                    completed_media.append({
+                        'media_id': media['id'],
+                        'file_path': media['file_path'],
+                        'alt_text': media.get('alt_text', ''),
+                        'caption': media.get('caption', ''),
+                        'url': media.get('url', '')
+                    })
+            
+            if not completed_media:
+                logger.info(f"No completed media files found for article {article_id}")
                 return True
+                
+            logger.info(f"Found {len(completed_media)} completed media files for article {article_id}")
+            
+            # Получаем медиафайлы для загрузки  
+            media_files = completed_media
+                
+            if not media_files:
+                logger.info(f"All media files already uploaded for article {article_id}")
+                return True
+            
+            uploaded_media_ids = []
+            
+            for i, media in enumerate(media_files):
+                try:
+                    # Пауза между медиафайлами (кроме первого)
+                    if i > 0:
+                        import time
+                        logger.info("Waiting 3 seconds before next media file...")
+                        time.sleep(3)
+                    
+                    # Подготовка метаданных для перевода
+                    metadata_to_translate = {
+                        'alt_text': media.get('alt_text', ''),
+                        'caption': media.get('caption', ''),
+                        'article_title': article_title
+                    }
+                    
+                    # Переводим метаданные
+                    translated = self._translate_media_metadata(metadata_to_translate, i + 1, len(media_files))
+                    
+                    if translated:
+                        # Загружаем файл в WordPress Media Library
+                        wp_media_result = self._upload_media_to_wordpress(
+                            file_path=media['file_path'],
+                            post_id=wp_post_id,
+                            alt_text=translated.get('alt_text_ru', ''),
+                            caption=translated.get('caption_ru', '')
+                        )
+                        
+                        if wp_media_result and wp_media_result.get('wp_media_id'):
+                            # Обновляем запись медиа в Supabase с WordPress данными
+                            self.db.client.table('media_files')\
+                                .update({
+                                    'wp_media_id': wp_media_result['wp_media_id'],
+                                    'wp_source_url': wp_media_result['wp_url'],
+                                    'alt_text': translated.get('alt_text_ru', ''),
+                                    'caption': translated.get('caption_ru', ''),
+                                    'image_order': i + 1  # Порядковый номер для плейсхолдеров
+                                })\
+                                .eq('id', media['media_id'])\
+                                .execute()
+                                
+                            uploaded_media_ids.append(wp_media_result['wp_media_id'])
+                            logger.info(f"✅ Uploaded media {media['media_id']} as WP media {wp_media_result['wp_media_id']}: {wp_media_result['wp_url']}")
+                        else:
+                            logger.error(f"Failed to upload media {media['media_id']} to WordPress")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing media {media.get('media_id')}: {str(e)}")
+                
+            # Результат обработки
+            if uploaded_media_ids:
+                logger.info(f"Successfully uploaded {len(uploaded_media_ids)} media files, images inserted via [IMAGE_N] placeholders")
+                
+            return True
                 
         except Exception as e:
             logger.error(f"Error in _process_media_for_article: {str(e)}")
@@ -1303,7 +1340,7 @@ class WordPressPublisher:
                 
                 logger.info(f"Found {len(media_files)} media files to upload")
                 
-                for media in media_files:
+                for i, media in enumerate(media_files):
                     try:
                         # Skip if already uploaded
                         if media.get('wp_media_id'):
@@ -1318,7 +1355,7 @@ class WordPressPublisher:
                         }
                         
                         # Translate metadata
-                        translated = self._translate_media_metadata(metadata_to_translate)
+                        translated = self._translate_media_metadata(metadata_to_translate, i + 1, len(media_files))
                         
                         if translated:
                             # Upload file to WordPress
@@ -1382,62 +1419,34 @@ class WordPressPublisher:
         
         return results
     
-    def _get_articles_needing_media_upload(self, limit: int) -> List[Dict[str, Any]]:
-        """Get articles with wp_post_id that have media files not yet uploaded"""
-        query = """
-        SELECT DISTINCT
-            w.article_id,
-            w.wp_post_id,
-            a.title
-        FROM wordpress_articles w
-        JOIN articles a ON w.article_id = a.article_id
-        JOIN media_files m ON a.article_id = m.article_id
-        WHERE w.published_to_wp = 1
-          AND w.wp_post_id IS NOT NULL
-          AND m.file_path IS NOT NULL
-          AND (m.wp_upload_status IS NULL OR m.wp_upload_status = 'pending')
-        LIMIT ?
-        """
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(query, (limit,))
-            columns = [description[0] for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
-    def _get_media_for_upload(self, article_id: str) -> List[Dict[str, Any]]:
-        """Get media files for an article that need to be uploaded"""
-        query = """
-        SELECT 
-            id as media_id,
-            article_id,
-            url,
-            file_path,
-            alt_text,
-            caption,
-            mime_type,
-            wp_media_id,
-            wp_upload_status
-        FROM media_files
-        WHERE article_id = ?
-          AND file_path IS NOT NULL
-          AND (wp_upload_status IS NULL OR wp_upload_status = 'pending')
-        """
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(query, (article_id,))
-            columns = [description[0] for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
     
-    def _translate_media_metadata(self, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Translate media metadata using GPT-3.5 Turbo"""
+    def _translate_media_metadata(self, metadata: Dict[str, Any], media_index: int = 1, total_media: int = 1) -> Optional[Dict[str, Any]]:
+        """Translate media metadata using DeepSeek Chat"""
+        from app_logging import log_operation
+        
         try:
             # Skip if no meaningful content to translate
             if not metadata.get('alt_text') and not metadata.get('caption'):
                 logger.info("No metadata to translate, using defaults")
+                log_operation(f'Медиа {media_index}/{total_media}: перевод пропущен (нет alt-text)',
+                    reason='no_content',
+                    article_title=metadata.get('article_title', ''),
+                    phase='media_metadata',
+                    media_progress=f'{media_index}/{total_media}'
+                )
                 return {
                     'alt_text_ru': metadata.get('article_title', 'Изображение'),
                     'slug': self._generate_slug(metadata.get('article_title', 'image'))
                 }
+            
+            # Log start of LLM translation
+            log_operation(f'Медиа {media_index}/{total_media}: перевод метаданных',
+                article_title=metadata.get('article_title', ''),
+                alt_text=metadata.get('alt_text', '')[:100],
+                phase='media_metadata',
+                media_progress=f'{media_index}/{total_media}'
+            )
             
             # Загружаем промпт из файла
             prompt = load_prompt('image_metadata',
@@ -1447,8 +1456,8 @@ class WordPressPublisher:
             
             logger.debug(f"Translating metadata with prompt length: {len(prompt)}")
             
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self.deepseek_client.chat.completions.create(
+                model="deepseek-chat",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 timeout=30
@@ -1464,18 +1473,48 @@ class WordPressPublisher:
                 if 'slug' in result:
                     result['slug'] = re.sub(r'[^a-z0-9\-]', '', result['slug'].lower())
                     result['slug'] = result['slug'][:50]  # Limit length
+                
+                # Log successful translation
+                log_operation(f'Медиа {media_index}/{total_media}: метаданные переведены',
+                    article_title=metadata.get('article_title', ''),
+                    alt_text_ru=result.get('alt_text_ru', '')[:100],
+                    slug=result.get('slug', ''),
+                    phase='media_metadata',
+                    media_progress=f'{media_index}/{total_media}'
+                )
                 return result
             except json.JSONDecodeError:
                 # Try to extract JSON from response
                 json_match = re.search(r'\{.*\}', content, re.DOTALL)
                 if json_match:
-                    return json.loads(json_match.group())
+                    result = json.loads(json_match.group())
+                    log_operation(f'Медиа {media_index}/{total_media}: метаданные переведены',
+                        article_title=metadata.get('article_title', ''),
+                        alt_text_ru=result.get('alt_text_ru', '')[:100],
+                        slug=result.get('slug', ''),
+                        phase='media_metadata',
+                        media_progress=f'{media_index}/{total_media}'
+                    )
+                    return result
                 else:
                     logger.error("Failed to parse translation response")
+                    log_operation(f'Медиа {media_index}/{total_media}: ошибка перевода (JSON)',
+                        article_title=metadata.get('article_title', ''),
+                        error='json_parse_error',
+                        response_preview=content[:200],
+                        phase='media_metadata',
+                        media_progress=f'{media_index}/{total_media}'
+                    )
                     return None
                     
         except Exception as e:
             logger.error(f"Error translating metadata: {str(e)}")
+            log_operation(f'Медиа {media_index}/{total_media}: ошибка перевода',
+                article_title=metadata.get('article_title', ''),
+                error=str(e)[:200],
+                phase='media_metadata',
+                media_progress=f'{media_index}/{total_media}'
+            )
             return None
     
     def _get_wordpress_media_url(self, wp_media_id: int) -> Optional[str]:
@@ -1617,22 +1656,15 @@ class WordPressPublisher:
             if wp_media_id:
                 wp_source_url = self._get_wordpress_media_url(wp_media_id)
             
-            with self.db.get_connection() as conn:
-                conn.execute("""
-                    UPDATE media_files
-                    SET wp_media_id = ?,
-                        wp_upload_status = 'uploaded',
-                        wp_uploaded_at = ?,
-                        alt_text_ru = ?,
-                        wp_source_url = ?
-                    WHERE id = ?
-                """, (
-                    wp_media_id,
-                    datetime.now(),
-                    alt_text_ru,
-                    wp_source_url,
-                    media_id
-                ))
+            # Используем SupabaseClient для обновления
+            self.db.update_media_file(
+                media_id=media_id,
+                wp_media_id=wp_media_id,
+                wp_upload_status='uploaded',
+                wp_uploaded_at=datetime.now(),
+                alt_text_ru=alt_text_ru,
+                wp_source_url=wp_source_url
+            )
             logger.info(f"Saved upload result for media {media_id} with WP URL: {wp_source_url}")
         except Exception as e:
             logger.error(f"Error saving upload result: {str(e)}")
@@ -1643,23 +1675,12 @@ class WordPressPublisher:
         - 2+ картинки: первая в обложку, остальные через каждые 2 абзаца
         """
         try:
-            # Получаем загруженные медиафайлы для статьи
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT 
-                        m.wp_media_id,
-                        m.alt_text_ru
-                    FROM media_files m
-                    WHERE m.article_id = ?
-                      AND m.wp_media_id IS NOT NULL
-                    ORDER BY m.id
-                """, (article_id,))
-                
-                media_items = cursor.fetchall()
-                
-                if not media_items:
-                    logger.info(f"No uploaded media found for article {article_id}")
-                    return True
+            # Получаем загруженные медиафайлы для статьи через SupabaseClient
+            media_items = self.db.get_uploaded_media_for_article(article_id)
+            
+            if not media_items:
+                logger.info(f"No uploaded media found for article {article_id}")
+                return True
                 
                 # Подготовка аутентификации
                 auth_string = base64.b64encode(
@@ -1671,19 +1692,14 @@ class WordPressPublisher:
                     'Content-Type': 'application/json'
                 }
                 
-                # Сначала пробуем получить контент из базы данных
-                cursor = conn.execute("""
-                    SELECT content 
-                    FROM wordpress_articles 
-                    WHERE wp_post_id = ?
-                """, (wp_post_id,))
-                row = cursor.fetchone()
-                
+                # Получаем контент из базы данных через SupabaseClient
                 current_content = ""
-                if row and row[0]:
-                    current_content = row[0]
+                wp_article = self.db.get_wordpress_article_by_wp_id(wp_post_id)
+                if wp_article and wp_article.get('content'):
+                    current_content = wp_article['content']
                     logger.info(f"Using content from database: {len(current_content)} chars")
-                else:
+                
+                if not current_content:
                     # Если в БД нет контента, пробуем получить из WordPress
                     logger.warning(f"No content found in database for post {wp_post_id}, trying WordPress API")
                     post_response = requests.get(

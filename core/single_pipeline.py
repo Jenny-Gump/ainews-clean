@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from core.config import Config
 from app_logging import get_logger, LogContext
 from services.content_parser import ContentParser
@@ -27,7 +27,7 @@ class SingleArticlePipeline:
     """Пайплайн обработки статей по одной через весь цикл"""
     
     def __init__(self):
-        self.db = Database()
+        self.db = DatabaseConfig.get_database()
         self.config = Config()
         self.status = PipelineStatus.STOPPED
         self.current_article = None
@@ -75,23 +75,12 @@ class SingleArticlePipeline:
     def get_next_article(self) -> Optional[Dict[str, Any]]:
         """Получить следующую статью для обработки"""
         try:
-            with self.db.get_connection() as conn:
-                # Берем pending статьи или parsed с готовыми медиа
-                # Простая очередь FIFO - первая пришла, первая обработана
-                cursor = conn.execute("""
-                    SELECT article_id, title, url, source_id, content_status, media_status
-                    FROM articles 
-                    WHERE content_status IN ('pending', 'parsed')
-                      AND (content_status = 'pending' OR media_status = 'ready')
-                    ORDER BY created_at ASC
-                    LIMIT 1
-                """)
-                
-                row = cursor.fetchone()
-                if row:
-                    article = dict(row)
-                    logger.info(f"📎 Next article: {article['article_id']} - {article['title'][:50]} (status: {article['content_status']}, media: {article.get('media_status', 'pending')})")
-                    return article
+            # Используем метод адаптера для получения pending статей
+            articles = self.db.get_pending_articles(limit=1)
+            if articles and len(articles) > 0:
+                article = articles[0]
+                logger.info(f"📎 Next article: {article['article_id']} - {article['title'][:50]} (status: {article['content_status']}, media: {article.get('media_status', 'pending')})")
+                return article
                     
         except Exception as e:
             logger.error(f"Error getting next article: {e}")
@@ -149,8 +138,8 @@ class SingleArticlePipeline:
                         )
                         return result  # ОТКАТ: return нужен для прерывания при ошибках
                 
-                # Phase 3: Media Processing (если есть медиа)
-                if article['content_status'] == 'parsed':
+                # Phase 3: Media Processing (только если медиа еще не готово)
+                if article['content_status'] == 'parsed' and article['media_status'] == 'pending':
                     media_count = self._get_article_media_count(article_id)
                     logger.info(f"📊 Media files count: {media_count}")
                     
@@ -181,35 +170,35 @@ class SingleArticlePipeline:
                     # Статус уже обновлен в ContentParser на 'parsed'
                     article['content_status'] = 'parsed'
                 
-                    # Phase 4: WordPress Preparation (если ready)
-                    logger.info(f"Checking WordPress phases: media_status={article['media_status']}")
-                    if article['media_status'] == 'ready':
-                        logger.info("Media is ready, checking WordPress preparation...")
-                        # Проверяем, не переведена ли уже
-                        if not self._is_wordpress_prepared(article_id):
-                            logger.info("Article not prepared for WordPress, starting Phase 4...")
-                            phase_result = await self._phase_wordpress_preparation(article)
-                            if phase_result['success']:
-                                result['phases_completed'].append('wordpress_prep')
-                                self.phase_stats['wordpress_prep']['success'] += 1
-                            else:
-                                result['phases_failed'].append('wordpress_prep')
-                                self.phase_stats['wordpress_prep']['failed'] += 1
-                                result['error'] = phase_result.get('error')
-                                return result  # ОТКАТ: return нужен для прерывания при ошибках
-                        
-                        # Phase 5: WordPress Publishing
-                        if not self._is_wordpress_published(article_id):
-                            phase_result = await self._phase_wordpress_publishing(article)
-                            if phase_result['success']:
-                                result['phases_completed'].append('wordpress_pub')
-                                self.phase_stats['wordpress_pub']['success'] += 1
-                                result['success'] = True
-                            else:
-                                result['phases_failed'].append('wordpress_pub')
-                                self.phase_stats['wordpress_pub']['failed'] += 1
-                                result['error'] = phase_result.get('error')
-                                return result  # ОТКАТ: return нужен для прерывания при ошибках
+                # Phase 4: WordPress Preparation (если ready)
+                logger.info(f"Checking WordPress phases: media_status={article['media_status']}")
+                if article['media_status'] == 'ready':
+                    logger.info("Media is ready, checking WordPress preparation...")
+                    # Проверяем, не переведена ли уже
+                    if not self._is_wordpress_prepared(article_id):
+                        logger.info("Article not prepared for WordPress, starting Phase 4...")
+                        phase_result = await self._phase_wordpress_preparation(article)
+                        if phase_result['success']:
+                            result['phases_completed'].append('wordpress_prep')
+                            self.phase_stats['wordpress_prep']['success'] += 1
+                        else:
+                            result['phases_failed'].append('wordpress_prep')
+                            self.phase_stats['wordpress_prep']['failed'] += 1
+                            result['error'] = phase_result.get('error')
+                            return result  # ОТКАТ: return нужен для прерывания при ошибках
+                    
+                    # Phase 5: WordPress Publishing
+                    if not self._is_wordpress_published(article_id):
+                        phase_result = await self._phase_wordpress_publishing(article)
+                        if phase_result['success']:
+                            result['phases_completed'].append('wordpress_pub')
+                            self.phase_stats['wordpress_pub']['success'] += 1
+                            result['success'] = True
+                        else:
+                            result['phases_failed'].append('wordpress_pub')
+                            self.phase_stats['wordpress_pub']['failed'] += 1
+                            result['error'] = phase_result.get('error')
+                            return result  # ОТКАТ: return нужен для прерывания при ошибках
                 
                 result['success'] = True  # ОТКАТ: установка success для успешно обработанных статей
                 logger.info(f"✅ Статья успешно обработана: {title}")
@@ -309,7 +298,7 @@ class SingleArticlePipeline:
                 media_list = await self._get_article_media(article['article_id'])
                 
                 if not media_list:
-                    logger.info("No media files found for article")
+                    logger.info("No media files to download for this article")
                     result = {'success': True, 'processed': 0}
                 else:
                     # Обрабатываем медиа для этой статьи
@@ -335,9 +324,9 @@ class SingleArticlePipeline:
                     processed=processed
                 )
             else:
-                log_operation('Медиа файлов не обнаружено',
+                log_operation('No media files to download',
                     phase='media_processing',
-                    article_id=article['article_id'],
+                    article_id=article['article_id'], 
                     duration_seconds=time.time() - phase_start
                 )
             
@@ -387,27 +376,9 @@ class SingleArticlePipeline:
                 return {'success': True, 'already_processed': True}
             
             # Получаем полные данные статьи из БД
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT 
-                        a.article_id,
-                        a.title,
-                        a.content,
-                        a.url,
-                        a.published_date,
-                        a.source_id,
-                        s.name as source_name,
-                        s.category
-                    FROM articles a
-                    JOIN sources s ON a.source_id = s.source_id
-                    WHERE a.article_id = ?
-                """, (article['article_id'],))
-                
-                row = cursor.fetchone()
-                if not row:
-                    return {'success': False, 'error': 'Article not found in database'}
-                
-                full_article = dict(row)
+            full_article = self.db.get_article(article['article_id'])
+            if not full_article:
+                return {'success': False, 'error': 'Article not found in database'}
             
             # НОВОЕ: Очищаем плейсхолдеры failed картинок перед отправкой в ЛЛМ
             if full_article.get('content'):
@@ -491,37 +462,17 @@ class SingleArticlePipeline:
             publisher = WordPressPublisher(self.config, self.db)
             
             # Получаем данные из wordpress_articles для конкретной статьи
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT 
-                        id,
-                        title,
-                        content,
-                        excerpt,
-                        slug,
-                        categories,
-                        tags,
-                        _yoast_wpseo_title,
-                        _yoast_wpseo_metadesc,
-                        focus_keyword,
-                        featured_image_index,
-                        published_to_wp
-                    FROM wordpress_articles
-                    WHERE article_id = ? AND translation_status = 'translated'
-                """, (article['article_id'],))
-                
-                row = cursor.fetchone()
-                if not row:
-                    logger.warning(f"No translated content found for article {article['article_id']}")
-                    return {'success': False, 'error': 'Article not translated yet'}
-                
-                wp_article = dict(row)
-                wp_article['article_id'] = article['article_id']
-                
-                # Проверяем не опубликована ли уже
-                if wp_article['published_to_wp']:
-                    logger.info(f"Article {article['article_id']} already published")
-                    return {'success': True, 'already_published': True}
+            wp_article = self.db.get_wordpress_article(article['article_id'])
+            if not wp_article:
+                logger.warning(f"No translated content found for article {article['article_id']}")
+                return {'success': False, 'error': 'Article not translated yet'}
+            
+            wp_article['article_id'] = article['article_id']
+            
+            # Проверяем не опубликована ли уже
+            if wp_article['published_to_wp']:
+                logger.info(f"Article {article['article_id']} already published")
+                return {'success': True, 'already_published': True}
             
             logger.info(f"Publishing article: {wp_article['title'][:50]}...")
             
@@ -545,32 +496,50 @@ class SingleArticlePipeline:
                     wp_url=f'https://ailynx.ru/?p={wp_post_id}'
                 )
                 
+                # DEBUG: Добавляем детальное логирование для диагностики
+                logger.info(f"DEBUG: After log_operation, about to process media for {article['article_id']}")
+                print(f"DEBUG PRINT: About to process media for {article['article_id']}")
+                
                 # Обрабатываем медиафайлы
-                logger.info(f"Processing media for article {article['article_id']}")
-                
-                # Пауза после публикации перед обработкой медиа
-                import time
-                logger.info("Waiting 5 seconds before media processing...")
-                time.sleep(5)
-                
-                media_result = publisher._process_media_for_article(
-                    article['article_id'], 
-                    wp_post_id,
-                    wp_article['title']
-                )
-                
-                if not media_result:
-                    logger.warning("Media processing had issues but post was published")
-                
-                # НОВОЕ: После загрузки медиа обновляем контент с локальными URL
-                logger.info(f"Replacing placeholders with local media URLs for post {wp_post_id}")
-                updated_content = publisher._replace_image_placeholders(wp_article['content'], article['article_id'])
-                
-                # Обновляем контент поста в WordPress
-                if publisher._update_post_content(wp_post_id, updated_content):
-                    logger.info(f"✅ Post {wp_post_id} content updated with local media URLs")
-                else:
-                    logger.warning(f"⚠️ Failed to update post {wp_post_id} content, using external URLs")
+                try:
+                    logger.info(f"Processing media for article {article['article_id']}")
+                    
+                    # Пауза после публикации перед обработкой медиа
+                    import time
+                    logger.info("Waiting 5 seconds before media processing...")
+                    time.sleep(5)
+                    
+                    logger.info(f"DEBUG: After sleep, calling _process_media_for_article")
+                    media_result = publisher._process_media_for_article(
+                        article['article_id'], 
+                        wp_post_id,
+                        wp_article['title']
+                    )
+                    logger.info(f"DEBUG: _process_media_for_article returned: {media_result}")
+                    
+                    if not media_result:
+                        logger.warning("Media processing had issues but post was published")
+                    
+                    # НОВОЕ: После загрузки медиа обновляем контент с локальными URL
+                    logger.info(f"Replacing placeholders with local media URLs for post {wp_post_id}")
+                    # ИСПРАВЛЕНИЕ: Берем контент С плейсхолдерами из Supabase
+                    content_with_placeholders = wp_article.get('content', wp_article.get('content_ru', ''))
+                    updated_content = publisher._replace_image_placeholders(content_with_placeholders, article['article_id'])
+                    
+                    # Обновляем контент поста в WordPress
+                    if publisher._update_post_content(wp_post_id, updated_content):
+                        logger.info(f"✅ Post {wp_post_id} content updated with local media URLs")
+                    else:
+                        logger.warning(f"⚠️ Failed to update post {wp_post_id} content, using external URLs")
+                    
+                    logger.info(f"DEBUG: Media processing completed for {article['article_id']}")
+                    
+                except Exception as e:
+                    logger.error(f"CRITICAL ERROR in media processing: {e}", exc_info=True)
+                    logger.error(f"Stack trace will be printed to console")
+                    import traceback
+                    traceback.print_exc()
+                    # Не прерываем публикацию из-за ошибки медиа
                 
                 success = True
             else:
@@ -694,12 +663,13 @@ class SingleArticlePipeline:
                         logger.error(f"❌ Ошибка обработки: {result.get('error')}")
                     
                     # Логируем завершение цикла
-                    log_operation('continuous_cycle_complete',
+                    cycle_duration = time.time() - cycle_start
+                    log_operation(f'🔄 Цикл #{cycle_count}: {self.success_count}✅/{self.error_count}❌ за {cycle_duration:.1f}с',
                         cycle_number=cycle_count,
                         articles_processed=self.processed_count,
                         success_count=self.success_count,
                         failed_count=self.error_count,
-                        duration_seconds=time.time() - cycle_start
+                        duration_seconds=cycle_duration
                     )
                     
                     # Задержка перед следующей статьей (если не последняя)
@@ -820,27 +790,20 @@ class SingleArticlePipeline:
     def _get_article_media_count(self, article_id: str) -> int:
         """Получить количество медиафайлов статьи"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT COUNT(*) FROM media_files WHERE article_id = ?",
-                    (article_id,)
-                )
-                return cursor.fetchone()[0]
+            # Используем Supabase метод для подсчета медиафайлов
+            media_files = self.db.get_article_media_files(article_id)
+            return len(media_files)
         except Exception:
             return 0
     
     async def _get_article_media(self, article_id: str) -> List[Dict[str, Any]]:
         """Получить медиафайлы статьи для обработки"""
         try:
-            with self.db.get_connection() as conn:
-                # Ищем медиа со статусом pending (не скачанные)
-                cursor = conn.execute("""
-                    SELECT media_id as id, article_id, source_id, url, type, alt_text, caption
-                    FROM media_files 
-                    WHERE article_id = ? AND status = 'pending'
-                """, (article_id,))
-                
-                return [dict(row) for row in cursor.fetchall()]
+            # Получаем все медиафайлы статьи
+            media_files = self.db.get_article_media_files(article_id)
+            # Фильтруем только pending статус (если есть такое поле)
+            pending_media = [m for m in media_files if m.get('status') == 'pending']
+            return pending_media if pending_media else media_files
         except Exception as e:
             logger.error(f"Error getting article media: {e}")
             return []
@@ -848,46 +811,34 @@ class SingleArticlePipeline:
     def _update_media_status(self, article_id: str, status: str):
         """Обновить media_status статьи"""
         try:
-            with self.db.get_connection() as conn:
-                conn.execute(
-                    "UPDATE articles SET media_status = ? WHERE article_id = ?",
-                    (status, article_id)
-                )
+            success = self.db.update_article_media_status(article_id, status)
+            if not success:
+                logger.error(f"Failed to update media status for {article_id}")
         except Exception as e:
             logger.error(f"Error updating media status: {e}")
     
     def _update_article_status(self, article_id: str, status: str):
         """Обновить content_status статьи"""
         try:
-            with self.db.get_connection() as conn:
-                conn.execute(
-                    "UPDATE articles SET content_status = ? WHERE article_id = ?",
-                    (status, article_id)
-                )
+            success = self.db.update_article_status(article_id, status)
+            if not success:
+                logger.error(f"Failed to update article status for {article_id}")
         except Exception as e:
             logger.error(f"Error updating article status: {e}")
     
     def _is_wordpress_prepared(self, article_id: str) -> bool:
         """Проверить, подготовлена ли статья для WordPress"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT id FROM wordpress_articles WHERE article_id = ? AND translation_status = 'translated'",
-                    (article_id,)
-                )
-                return cursor.fetchone() is not None
+            wp_article = self.db.get_wordpress_article(article_id)
+            return wp_article is not None and len(wp_article) > 0
         except Exception:
             return False
     
     def _is_wordpress_published(self, article_id: str) -> bool:
         """Проверить, опубликована ли статья в WordPress"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT id FROM wordpress_articles WHERE article_id = ? AND published_to_wp = 1",
-                    (article_id,)
-                )
-                return cursor.fetchone() is not None
+            wp_article = self.db.get_wordpress_article(article_id)
+            return wp_article and wp_article.get('published_to_wp', False)
         except Exception:
             return False
     
@@ -905,22 +856,14 @@ class SingleArticlePipeline:
         import re
         
         try:
-            with self.db.get_connection() as conn:
-                # Получаем список медиа файлов со статусом failed или pending
-                cursor = conn.execute("""
-                    SELECT url, alt_text, status, image_order
-                    FROM media_files 
-                    WHERE article_id = ?
-                    ORDER BY image_order
-                """, (article_id,))
-                
-                media_files = cursor.fetchall()
-                
-                # Собираем номера failed/pending картинок
-                failed_image_numbers = []
-                for row in media_files:
-                    if row['status'] in ('failed', 'pending') and row['image_order'] is not None:
-                        failed_image_numbers.append(row['image_order'])
+            # Получаем список медиа файлов
+            media_files = self.db.get_article_media_files(article_id)
+            
+            # Собираем номера failed/pending картинок
+            failed_image_numbers = []
+            for row in media_files:
+                if row['status'] in ('failed', 'pending') and row['image_order'] is not None:
+                    failed_image_numbers.append(row['image_order'])
                 
                 # Убираем плейсхолдеры failed картинок
                 cleaned_content = content

@@ -1,7 +1,7 @@
 """
 Parsing Progress Tracker for real-time monitoring of parsing operations
 """
-import sqlite3
+# import sqlite3  # DISABLED - using Supabase
 import threading
 import time
 from datetime import datetime, timedelta
@@ -16,7 +16,8 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
-from .database import MonitoringDatabase
+from .supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
 from .process_manager import ProcessStatus
 
 
@@ -651,60 +652,9 @@ class ParsingProgressTracker:
                 
                 state = self._current_state.copy()
             
-            with sqlite3.connect(self.monitoring_db.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Check if record exists
-                cursor.execute(
-                    "SELECT id FROM parsing_progress WHERE parser_pid = ? ORDER BY timestamp DESC LIMIT 1",
-                    (state['parser_pid'],)
-                )
-                existing = cursor.fetchone()
-                
-                if existing:
-                    # Update existing record
-                    cursor.execute("""
-                        UPDATE parsing_progress SET
-                            status = ?,
-                            current_source = ?,
-                            total_sources = ?,
-                            processed_sources = ?,
-                            total_articles = ?,
-                            progress_percent = ?,
-                            estimated_completion = ?,
-                            last_update = ?
-                        WHERE id = ?
-                    """, (
-                        state['status'],
-                        state['current_source'],
-                        state['total_sources'],
-                        state['processed_sources'],
-                        state['total_articles'],
-                        (state['processed_sources'] / state['total_sources'] * 100) if state['total_sources'] > 0 else 0,
-                        state.get('estimated_completion'),
-                        datetime.now(),
-                        existing[0]
-                    ))
-                else:
-                    # Insert new record
-                    cursor.execute("""
-                        INSERT INTO parsing_progress
-                        (parser_pid, status, current_source, total_sources, processed_sources,
-                         total_articles, progress_percent, estimated_completion, last_update)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        state['parser_pid'],
-                        state['status'],
-                        state['current_source'],
-                        state['total_sources'],
-                        state['processed_sources'],
-                        state['total_articles'],
-                        (state['processed_sources'] / state['total_sources'] * 100) if state['total_sources'] > 0 else 0,
-                        state.get('estimated_completion'),
-                        datetime.now()
-                    ))
-                
-                conn.commit()
+            # Use Supabase monitoring database instead of SQLite
+            state['progress_percent'] = (state['processed_sources'] / state['total_sources'] * 100) if state['total_sources'] > 0 else 0
+            self.monitoring_db.update_parsing_progress(state['parser_pid'], state)
                 
         except Exception as e:
             self.logger.error(f"Error saving progress to database: {e}")
@@ -712,36 +662,46 @@ class ParsingProgressTracker:
     def load_from_database(self, parser_pid: int) -> bool:
         """Load progress state from database for a given PID"""
         try:
-            with sqlite3.connect(self.monitoring_db.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT status, current_source, total_sources, processed_sources,
-                           total_articles, estimated_completion, timestamp, last_update
-                    FROM parsing_progress
-                    WHERE parser_pid = ?
-                    ORDER BY timestamp DESC
-                    LIMIT 1
-                """, (parser_pid,))
+            # Use Supabase monitoring database instead of SQLite
+            progress_data = self.monitoring_db.get_parsing_progress(parser_pid)
+            
+            if progress_data:
+                with self._lock:
+                    self._current_state.update({
+                        'parser_pid': parser_pid,
+                        'status': progress_data.get('status'),
+                        'current_source': progress_data.get('current_source'),
+                        'total_sources': progress_data.get('total_sources', 0),
+                        'processed_sources': progress_data.get('processed_sources', 0),
+                        'total_articles': progress_data.get('total_articles', 0),
+                        'estimated_completion': progress_data.get('estimated_completion'),
+                        'start_time': progress_data.get('timestamp'),
+                        'last_update': progress_data.get('last_update')
+                    })
                 
-                row = cursor.fetchone()
-                if row:
-                    with self._lock:
-                        self._current_state.update({
-                            'parser_pid': parser_pid,
-                            'status': row[0],
-                            'current_source': row[1],
-                            'total_sources': row[2],
-                            'processed_sources': row[3],
-                            'total_articles': row[4],
-                            'estimated_completion': row[5],
-                            'start_time': row[6],
-                            'last_update': row[7]
-                        })
-                    
-                    self.logger.info(f"Loaded progress state for PID {parser_pid}")
-                    return True
+                self.logger.info(f"Loaded progress state for PID {parser_pid}")
+                return True
                 
         except Exception as e:
             self.logger.error(f"Error loading progress from database: {e}")
         
         return False
+
+
+# Global instance management
+_parsing_tracker_instance: Optional[ParsingProgressTracker] = None
+
+def get_parsing_tracker(monitoring_db=None) -> ParsingProgressTracker:
+    """Get or create the global parsing tracker instance"""
+    global _parsing_tracker_instance
+    
+    if _parsing_tracker_instance is None and monitoring_db is not None:
+        _parsing_tracker_instance = ParsingProgressTracker(monitoring_db)
+        _parsing_tracker_instance.start()
+    
+    return _parsing_tracker_instance
+
+def set_parsing_tracker(tracker: ParsingProgressTracker):
+    """Set the global parsing tracker instance"""
+    global _parsing_tracker_instance
+    _parsing_tracker_instance = tracker

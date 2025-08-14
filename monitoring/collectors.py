@@ -3,15 +3,27 @@ Metric collectors for the monitoring system
 """
 import psutil
 import time
-import sqlite3
+# # import sqlite3  # DISABLED - using Supabase  # DISABLED - using Supabase
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import threading
 import queue
+import asyncio
+from pathlib import Path
+import sys
+
+# Add parent directory to path
+sys.path.append(str(Path(__file__).parent.parent))
 
 from .models import PerformanceMetrics, SourceMetrics
-from .database import MonitoringDatabase
+from .supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
+SupabaseMonitoringAdapter = get_supabase_client  # Compatibility alias
+from core.db_config import DatabaseConfig
+from app_logging import get_logger
 # from .log_processor import LogDataExtractor  # REMOVED - module not found
+
+logger = get_logger(__name__)
 
 
 class MetricsCollector:
@@ -19,8 +31,12 @@ class MetricsCollector:
     
     def __init__(self, monitoring_db: MonitoringDatabase):
         self.monitoring_db = monitoring_db
+        self.supabase_adapter = SupabaseMonitoringAdapter(monitoring_db)
         self._running = False
         self._thread = None
+        self._batch_buffer = []
+        self._batch_size = 10
+        self._last_flush = time.time()
     
     def start(self):
         """Start the collector"""
@@ -51,6 +67,7 @@ class SystemResourceCollector(MetricsCollector):
         
     def _run(self):
         """Collect system resource metrics every 30 seconds"""
+        print(f"SystemResourceCollector._run started! Interval: {self.interval_seconds}s")
         while self._running:
             try:
                 # Collect CPU usage
@@ -130,24 +147,18 @@ class SystemResourceCollector(MetricsCollector):
     def _save_system_metrics(self, metrics: Dict[str, Any]):
         """Save system metrics to database"""
         try:
-            with sqlite3.connect(self.monitoring_db.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO system_metrics 
-                    (timestamp, cpu_percent, memory_percent, disk_percent, 
-                     process_count, ainews_process_count, network_connections, open_files)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    metrics['timestamp'],
-                    metrics['cpu_percent'],
-                    metrics['memory_percent'],
-                    metrics['disk_percent'],
-                    metrics['process_count'],
-                    metrics['ainews_process_count'],
-                    metrics['network_connections'],
-                    metrics['open_files']
-                ))
-                conn.commit()
+            print(f"SystemResourceCollector: Saving metrics - CPU: {metrics['cpu_percent']}%, Memory: {metrics['memory_percent']}%")
+            # Use monitoring_db adapter instead of direct SQLite
+            self.monitoring_db.insert_system_metrics({
+                'timestamp': metrics['timestamp'],
+                'cpu_percent': metrics['cpu_percent'],
+                'memory_percent': metrics['memory_percent'],
+                'disk_percent': metrics['disk_percent'],
+                'process_count': metrics['process_count'],
+                'ainews_process_count': metrics['ainews_process_count'],
+                'network_connections': metrics['network_connections'],
+                'open_files': metrics['open_files']
+            })
         except Exception as e:
             print(f"Error saving system metrics: {e}")
     

@@ -1,6 +1,6 @@
 # Architecture - Single Pipeline System + External Prompts
 
-**Обновлено**: 9 августа 2025 - Session Management Fixes + Stable Parallel Processing
+**Обновлено**: 14 августа 2025 - Full Supabase Migration + Duplicate Protection
 
 ## System Design
 
@@ -14,7 +14,9 @@ AI News Parser использует архитектуру единого пай
 - **main.py**: Упрощенная точка входа (только --rss-discover, --single-pipeline, --stats)
 - **single_pipeline.py**: Главная логика единого пайплайна
 - **config.py**: Управление конфигурацией
-- **database.py**: Операции с SQLite
+- **database_factory.py**: Фабрика БД для Supabase
+- **db_config.py**: Конфигурация подключения к Supabase
+- **supabase_client.py**: Операции с Supabase (в services/)
 - **models.py**: Pydantic модели для валидации
 
 ### 2. Services Module (`services/`)
@@ -33,7 +35,7 @@ Real-time system monitoring:
 
 - **app.py**: FastAPI application with WebSocket support
 - **api.py**: REST API endpoints
-- **database.py**: Metrics storage
+- **supabase_monitoring_database.py**: Metrics storage в Supabase
 - **collectors.py**: System and application metrics collection
 
 ## Single Pipeline Flow
@@ -53,26 +55,26 @@ graph TD
     style D fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
-### [Phase 1: RSS Discovery](phases/phase1_rss_discovery.md)
-1. Scan 26 configured RSS feeds
+### Phase 1: RSS Discovery
+1. Scan 29 configured RSS feeds
 2. Extract article metadata
 3. Check for duplicates
 4. Save as 'pending' status
 
-### [Phase 2: Content Parsing](phases/phase2_content_parsing.md)
+### Phase 2: Content Parsing
 1. Fetch pending articles
 2. Call Firecrawl Scrape API for raw markdown
 3. Clean content with DeepSeek AI using external prompt (`prompts/content_cleaner.txt`)
 4. Extract real image URLs and add [IMAGE_N] placeholders
 5. Update to 'parsed' status with cleaned content
 
-### [Phase 3: Media Processing](phases/phase3_media_processing.md)
+### Phase 3: Media Processing
 1. Parse articles for media URLs
 2. Download images/videos with wget
-3. Validate dimensions (≥300×300px) and size (3KB-2MB)
+3. Validate dimensions (≥250×250px) and size (2KB-2MB)
 4. Store with metadata (width, height)
 
-### [Phase 4: WordPress Preparation](phases/phase4_wordpress_preparation.md)
+### Phase 4: WordPress Preparation
 1. Load articles with status 'completed'
 2. Translate content using DeepSeek Reasoner with external prompt (`prompts/article_translator.txt`)
 3. Generate tags using DeepSeek Chat with external prompt (`prompts/tag_generator.txt`)
@@ -80,14 +82,14 @@ graph TD
 5. Categorize (max 1) and tag articles (2-5 tags from 74 curated)
 6. Save to wordpress_articles table
 
-### [Phase 5: WordPress Publishing](phases/phase5_wordpress_publishing.md)
+### Phase 5: WordPress Publishing
 1. Create WordPress posts via REST API (draft status)
 2. Upload media with alt_text translated using GPT-3.5 and external prompt (`prompts/image_metadata.txt`)
 3. Set featured images
 4. Insert remaining images into content with [IMAGE_N] placeholder replacement
 5. Update publication status
 
-## Database Schema
+## Database Schema (Supabase)
 
 ### Sources Table
 ```sql
@@ -222,7 +224,10 @@ WORDPRESS_USERNAME     # WordPress username
 WORDPRESS_APP_PASSWORD # WordPress application password
 
 # System
-DATABASE_PATH          # SQLite database location
+SUPABASE_URL          # Supabase project URL
+SUPABASE_ANON_KEY     # Supabase anonymous key
+SUPABASE_SERVICE_KEY  # Supabase service key
+SUPABASE_PROJECT_REF  # Supabase project reference
 LOG_LEVEL             # Logging verbosity
 MEDIA_BASE_PATH       # Media storage directory
 ```
@@ -359,7 +364,8 @@ ainews-clean/
 ├── core/
 │   ├── main.py            # Entry point (simplified)
 │   ├── single_pipeline.py # Main pipeline logic
-│   ├── database.py        # DB operations
+│   ├── database_factory.py # DB factory (Supabase)
+│   ├── db_config.py       # DB configuration
 │   ├── config.py          # Configuration
 │   └── models.py          # Pydantic models
 ├── services/              # Phase services
@@ -378,7 +384,7 @@ ainews-clean/
 ├── monitoring/            # Web dashboard
 │   ├── app.py
 │   ├── api.py
-│   ├── database.py
+│   ├── supabase_monitoring_database.py
 │   └── collectors.py
 ├── app_logging/          # Logging system
 ├── agents/               # Agent contexts
@@ -394,16 +400,16 @@ ainews-clean/
 
 ## Database Paths
 
-**Main Database**: `/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db`
-- Articles, sources, media files, WordPress content
+**Main Database**: Supabase (`https://mtguynupyltlqiwhmilc.supabase.co`)
+- Articles, sources, media files, WordPress content (782 articles, 0 duplicates)
 - Global configuration including `global_last_parsed`
 - New tables: related_links, tracked_articles
+- UNIQUE constraint on articles.url field (protection from duplicates)
 
-**Monitoring Database**: `/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db`
+**Monitoring Database**: Supabase (same project, monitoring tables)
 - System metrics, source health
 - Parse history, error logs  
 - API metrics, alerts, memory metrics
-- ~~extract_api_metrics, extract_api_errors~~ (Удалены 7 августа 2025)
 
 ## 🆕 External Prompts System
 

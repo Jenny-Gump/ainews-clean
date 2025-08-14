@@ -6,26 +6,26 @@
 
 ## Архитектура
 
-### 1. Хранение в БД
+### 1. Хранение в БД (Supabase PostgreSQL)
 
 **Таблица**: `global_config`  
 **Ключ**: `global_last_parsed`  
-**Формат**: ISO 8601 с UTC timezone (например: `2025-08-08T14:01:09Z`)
+**Формат**: ISO 8601 с UTC timezone (например: `2025-08-14T11:32:54Z`)
 
 ```sql
--- Структура таблицы
+-- Структура таблицы в Supabase
 CREATE TABLE global_config (
     key TEXT PRIMARY KEY,
     value TEXT,
     description TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Пример записи
 key: 'global_last_parsed'
-value: '2025-08-08T14:01:09Z'
+value: '2025-08-14T11:32:54Z'
 description: 'Global last parsed timestamp for all sources'
-updated_at: '2025-08-08 17:01:09'
+updated_at: '2025-08-14 14:32:54'
 ```
 
 ### 2. Компоненты системы
@@ -51,38 +51,41 @@ except Exception as e:
     self.logger.error(f"Error updating global last_parsed: {e}")
 ```
 
-#### 2.2 Database Layer (`core/database.py`)
+#### 2.2 Database Layer (Supabase)
 
 **Методы для работы с global_last_parsed:**
 
 ```python
 def get_global_last_parsed(self) -> str:
-    """Get global last parsed timestamp"""
-    value = self.get_global_config('global_last_parsed')
-    return value if value else '2025-08-01T00:00:00Z'
+    """Get global last parsed timestamp from Supabase"""
+    supabase = get_supabase_client()
+    result = supabase.table('global_config').select('value').eq('key', 'global_last_parsed').single().execute()
+    return result.data['value'] if result.data else '2025-08-01T00:00:00Z'
 
 def set_global_last_parsed(self, timestamp: str):
-    """Set global last parsed timestamp"""
-    self.set_global_config('global_last_parsed', timestamp, 
-                          'Global last parsed timestamp for all sources')
+    """Set global last parsed timestamp in Supabase"""
+    supabase = get_supabase_client()
+    supabase.table('global_config').upsert({
+        'key': 'global_last_parsed',
+        'value': timestamp,
+        'description': 'Global last parsed timestamp for all sources',
+        'updated_at': datetime.now().isoformat()
+    }).execute()
 ```
 
 #### 2.3 API Endpoints (`monitoring/api_rss_endpoints.py`)
 
 **GET /api/extract/last-parsed**
 ```python
-# Возвращает global_last_parsed из global_config
-cursor.execute("""
-    SELECT value 
-    FROM global_config 
-    WHERE key = 'global_last_parsed'
-""")
+# Возвращает global_last_parsed из Supabase
+supabase = create_client(url, key)
+result = supabase.table('global_config').select('value').eq('key', 'global_last_parsed').single().execute()
 ```
 
 Ответ:
 ```json
 {
-    "last_parsed": "2025-08-08T14:01:09Z",
+    "last_parsed": "2025-08-14T11:32:54Z",
     "has_parsed": true,
     "source": "global_config"
 }
@@ -90,11 +93,14 @@ cursor.execute("""
 
 **PUT /api/extract/last-parsed**
 ```python
-# Обновляет global_last_parsed в global_config
-cursor.execute("""
-    INSERT OR REPLACE INTO global_config (key, value, description, updated_at) 
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-""", ('global_last_parsed', last_parsed, 'Global last parsed timestamp for all sources'))
+# Обновляет global_last_parsed в Supabase
+supabase = create_client(url, key)
+result = supabase.table('global_config').upsert({
+    'key': 'global_last_parsed',
+    'value': last_parsed,
+    'description': 'Global last parsed timestamp for all sources',
+    'updated_at': datetime.now().isoformat()
+}).execute()
 ```
 
 #### 2.4 Dashboard (`monitoring/static/index.html`)
@@ -167,11 +173,18 @@ graph TD
 
 ## Отладка и мониторинг
 
-### Проверка текущего значения в БД:
+### Проверка текущего значения в Supabase:
 ```sql
-SELECT key, value, datetime(updated_at, 'localtime') as local_time 
+-- Через Supabase SQL Editor или MCP
+SELECT key, value, updated_at 
 FROM global_config 
 WHERE key = 'global_last_parsed';
+```
+
+### Проверка через Supabase MCP:
+```bash
+# Используя MCP Supabase сервер
+mcp__supabase__execute_sql "SELECT * FROM global_config WHERE key = 'global_last_parsed'"
 ```
 
 ### Проверка через API:
@@ -204,10 +217,13 @@ grep "rss_discovery_complete" logs/operations.jsonl | tail -1 | jq '.timestamp'
 
 ## История изменений
 
+- **2025-08-14**: Полная миграция на Supabase PostgreSQL
+- **2025-08-14**: API эндпоинты переписаны для работы с Supabase
+- **2025-08-14**: Удалены все зависимости от SQLite
 - **2025-08-08**: Убрано условие обновления только при новых статьях
 - **2025-08-08**: API синхронизирован с global_config
 - **2025-08-08**: Добавлена документация системы
 
 ---
 
-*Последнее обновление: 8 августа 2025*
+*Последнее обновление: 14 августа 2025*

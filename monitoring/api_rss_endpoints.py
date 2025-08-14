@@ -6,8 +6,14 @@ import subprocess
 import sys
 import os
 import psutil
-import sqlite3
 import time
+from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables at module level
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -152,30 +158,33 @@ async def get_extract_status():
 async def get_articles_stats():
     """Get article statistics"""
     try:
-        if not monitoring_db:
-            raise HTTPException(status_code=500, detail="Database not initialized")
+        # Use Supabase to get article statistics
+        from supabase import create_client, Client
         
-        # Get article counts by status from main database
-        conn = sqlite3.connect(monitoring_db.ainews_db_path)
-        cursor = conn.cursor()
+        url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
         
-        cursor.execute("""
-            SELECT 
-                content_status, 
-                COUNT(*) as count
-            FROM articles
-            GROUP BY content_status
-        """)
+        if not key:
+            raise HTTPException(status_code=500, detail="Supabase key not configured")
         
+        supabase: Client = create_client(url, key)
+        
+        # Get article counts by status
+        statuses = ['pending', 'parsed', 'published', 'failed', 'deleted']
         status_counts = {}
-        for row in cursor.fetchall():
-            status_counts[row[0]] = row[1]
         
-        # Get total count
-        cursor.execute("SELECT COUNT(*) FROM articles")
-        total = cursor.fetchone()[0]
+        for status in statuses:
+            if status == 'deleted':
+                # For deleted status, count articles with is_deleted = 1
+                result = supabase.table('articles').select('article_id', count='exact').eq('is_deleted', 1).execute()
+            else:
+                # For other statuses, exclude deleted articles (is_deleted = 0 or NULL)
+                result = supabase.table('articles').select('article_id', count='exact').eq('content_status', status).neq('is_deleted', 1).execute()
+            status_counts[status] = result.count if hasattr(result, 'count') else 0
         
-        conn.close()
+        # Get total count excluding deleted articles
+        total_result = supabase.table('articles').select('article_id', count='exact').neq('is_deleted', 1).execute()
+        total = total_result.count if hasattr(total_result, 'count') else 0
         
         return {
             "total": total,
@@ -202,25 +211,24 @@ async def get_articles_stats():
 async def get_last_parsed():
     """Get global last parsed timestamp from global_config"""
     try:
-        if not monitoring_db:
-            raise HTTPException(status_code=500, detail="Database not initialized")
+        # Use Supabase to get global_last_parsed
+        from supabase import create_client, Client
+        
+        url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+        
+        if not key:
+            logger.error("Supabase key not found in environment variables")
+            raise HTTPException(status_code=500, detail="Supabase key not configured")
+        
+        supabase: Client = create_client(url, key)
         
         # Get global_last_parsed from global_config table
-        conn = sqlite3.connect(monitoring_db.ainews_db_path)
-        cursor = conn.cursor()
+        result = supabase.table('global_config').select('value').eq('key', 'global_last_parsed').single().execute()
         
-        cursor.execute("""
-            SELECT value 
-            FROM global_config 
-            WHERE key = 'global_last_parsed'
-        """)
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result and result[0]:
+        if result.data and result.data.get('value'):
             # Convert to ISO format with timezone for consistency
-            timestamp = result[0]
+            timestamp = result.data['value']
             if not timestamp.endswith('Z') and '+' not in timestamp:
                 timestamp = timestamp + 'Z'
             
@@ -256,26 +264,29 @@ async def update_last_parsed(request: Request):
         
         # Validate timestamp format
         try:
-            from datetime import datetime
             datetime.fromisoformat(last_parsed.replace('Z', '+00:00'))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid timestamp format")
         
-        # Update global last parsed timestamp in the database
-        if not monitoring_db:
-            raise HTTPException(status_code=500, detail="Database not available")
+        # Update global last parsed timestamp in Supabase
+        from supabase import create_client, Client
         
-        conn = sqlite3.connect(monitoring_db.ainews_db_path)
-        cursor = conn.cursor()
+        url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
         
-        # Update or insert global config
-        cursor.execute("""
-            INSERT OR REPLACE INTO global_config (key, value, description, updated_at) 
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, ('global_last_parsed', last_parsed, 'Global last parsed timestamp for all sources'))
+        if not key:
+            logger.error("Supabase key not found in environment variables")
+            raise HTTPException(status_code=500, detail="Supabase key not configured")
         
-        conn.commit()
-        conn.close()
+        supabase: Client = create_client(url, key)
+        
+        # Update or insert global config (with on_conflict for proper upsert)
+        result = supabase.table('global_config').upsert({
+            'key': 'global_last_parsed',
+            'value': last_parsed,
+            'description': 'Global last parsed timestamp for all sources',
+            'updated_at': datetime.now().isoformat()
+        }, on_conflict='key').execute()
         
         return {
             "status": "success",

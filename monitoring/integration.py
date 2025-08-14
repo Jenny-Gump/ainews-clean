@@ -3,7 +3,7 @@ Integration hooks for monitoring system with the main parsing pipeline
 """
 import time
 import json
-import sqlite3
+# import sqlite3  # DISABLED - using Supabase
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -11,7 +11,8 @@ from datetime import datetime
 from app_logging import get_logger
 
 from .collectors import SourceHealthCollector
-from .database import MonitoringDatabase
+from .supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
 
 logger = get_logger(__name__)
 
@@ -165,21 +166,13 @@ class MonitoringIntegration:
         """Called when an error occurs during parsing"""
         # Store error in monitoring database
         try:
-            with sqlite3.connect(self.monitoring_db.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO error_logs (
-                        source_id, error_type, error_message, 
-                        context, timestamp
-                    ) VALUES (?, ?, ?, ?, ?)
-                """, (
-                    source_id,
-                    error_type,
-                    error_message,
-                    json.dumps(context),
-                    datetime.now()
-                ))
-                conn.commit()
+            # Use Supabase monitoring database instead of SQLite
+            self.monitoring_db.save_error_log(
+                source_id=source_id,
+                error_type=error_type,
+                error_message=error_message,
+                context=context
+            )
         except Exception as e:
             logger.error(f"Failed to log error to monitoring DB: {e}")
         

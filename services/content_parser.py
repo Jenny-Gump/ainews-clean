@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from openai import OpenAI
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from app_logging import get_logger
 from .firecrawl_client import FirecrawlClient, FirecrawlError
 from .prompts_loader import load_prompt
@@ -27,7 +27,7 @@ class ContentParser:
     
     def __init__(self):
         self.logger = get_logger('services.content_parser')
-        self.db = Database()
+        self.db = DatabaseConfig.get_database()
         self.firecrawl_client = None
         
         # DeepSeek AI client for content cleaning
@@ -76,75 +76,58 @@ class ContentParser:
             True if saved successfully
         """
         try:
-            with self.db.get_connection() as conn:
-                # Update article with extracted content
-                update_data = {
-                    'content': extracted_data.get('content', ''),
-                    'content_status': 'parsed',
-                    'parsed_at': datetime.now(timezone.utc).isoformat()
-                }
-                
-                conn.execute("""
-                    UPDATE articles SET
-                        content = ?,
-                        content_status = ?,
-                        parsed_at = ?
-                    WHERE article_id = ?
-                """, (
-                    update_data['content'],
-                    update_data['content_status'],
-                    update_data['parsed_at'],
-                    article_id
-                ))
-                
-                # Save media files using proper database method
-                images = extracted_data.get('images', [])
-                media_count = 0
-                
-                for img in images[:5]:  # Limit to 5 images max
-                    if img.get('url'):
-                        try:
-                            # Insert media directly in the same connection to avoid database lock
-                            media_id = Database.generate_media_id(article_id, img['url'])
-                            conn.execute("""
-                                INSERT OR IGNORE INTO media_files (
-                                    media_id, article_id, source_id, url, type,
-                                    alt_text, caption, status, created_at, image_order
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-                            """, (
-                                media_id,
-                                article_id,
-                                source_id,
-                                img['url'],
-                                'image',
-                                img.get('alt_text'),
-                                img.get('caption'),
-                                datetime.now(timezone.utc).isoformat(),
-                                img.get('order', media_count + 1)  # Use order from DeepSeek or fallback
-                            ))
-                            if conn.total_changes > 0:
-                                media_count += 1
-                        except Exception as e:
-                            self.logger.warning(f"Failed to save media {img['url']}: {e}")
-                
-                # Update media count and media_status
-                if media_count > 0:
-                    # Есть медиафайлы - ставим статус 'processing' (будет обрабатываться в Phase 3)
-                    media_status = 'processing'
-                else:
-                    # Нет медиафайлов - готово к Phase 4
-                    media_status = 'ready'
-                
-                conn.execute("""
-                    UPDATE articles SET media_count = ?, media_status = ? WHERE article_id = ?
-                """, (media_count, media_status, article_id))
-                
-                self.stats['database_saves'] += 1
-                self.logger.info(f"Saved content for {article_id}: "
-                              f"content={len(update_data['content'])} chars, "
-                              f"media={media_count}")
-                
-                return True
+            # Update article with extracted content using SupabaseRealDatabase method
+            title = extracted_data.get('title', '')
+            content = extracted_data.get('content', '')
+            description = extracted_data.get('summary', '')
+            
+            success = self.db.update_article_basic_content(
+                article_id, title, content, description, 0  # media_count будет обновлен позже  
+            )
+            
+            if not success:
+                raise Exception("Failed to update article basic content")
+            
+            # Save media files using SupabaseRealDatabase method
+            images = extracted_data.get('images', [])
+            media_count = 0
+            
+            for img in images[:5]:  # Limit to 5 images max
+                if img.get('url'):
+                    try:
+                        # Use SupabaseRealDatabase method to add media file
+                        media_id = self.db.add_media_file(
+                            article_id=article_id,
+                            url=img['url'],
+                            alt_text=img.get('alt_text', ''),
+                            media_type='image'
+                        )
+                        if media_id:
+                            media_count += 1
+                    except Exception as e:
+                        self.logger.warning(f"Failed to save media {img['url']}: {e}")
+            
+            # Update media count and media_status using SupabaseRealDatabase method
+            if media_count > 0:
+                # Есть медиафайлы - ставим статус 'processing' (будет обрабатываться в Phase 3)
+                media_status = 'processing'
+            else:
+                # Нет медиафайлов - готово к Phase 4
+                media_status = 'ready'
+            
+            # Update media count and status
+            count_success = self.db.update_article_media_count(article_id, media_count)
+            media_success = self.db.update_article_media_status(article_id, media_status)
+            
+            if not media_success or not count_success:
+                self.logger.warning(f"Failed to update media info for {article_id}, but content was saved")
+            
+            self.stats['database_saves'] += 1
+            self.logger.info(f"Saved content for {article_id}: "
+                          f"content={len(content)} chars, "
+                          f"media={media_count}")
+            
+            return True
                 
         except Exception as e:
             self.stats['database_failures'] += 1
@@ -154,14 +137,12 @@ class ContentParser:
     def _mark_article_failed(self, article_id: str, error_message: str):
         """Mark article as failed in database"""
         try:
-            with self.db.get_connection() as conn:
-                conn.execute("""
-                    UPDATE articles SET
-                        content_status = 'failed',
-                        content_error = ?,
-                        parsed_at = ?
-                    WHERE article_id = ?
-                """, (error_message, datetime.now(timezone.utc).isoformat(), article_id))
+            # Use database method for compatibility with both SQLite and Supabase
+            success = self.db.update_article_status(article_id, 'failed', error_message)
+            if success:
+                self.logger.info(f"Article {article_id} marked as failed: {error_message[:100]}")
+            else:
+                self.logger.warning(f"Failed to update article status for {article_id}")
                 
         except Exception as e:
             self.logger.error(f"Failed to mark article {article_id} as failed: {e}")
@@ -487,25 +468,16 @@ class ContentParser:
             List of articles pending extraction
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT article_id, url, source_id, title
-                    FROM articles 
-                    WHERE content_status = 'pending'
-                    ORDER BY published_date DESC
-                    LIMIT ?
-                """, (limit,))
-                
-                articles = []
-                for row in cursor.fetchall():
-                    articles.append({
-                        'article_id': row[0],
-                        'url': row[1],
-                        'source_id': row[2],
-                        'title': row[3]
-                    })
-                
-                return articles
+            # Use SupabaseRealDatabase method to get pending articles
+            articles = self.db.get_pending_articles(limit)
+            
+            # Return in the expected format for compatibility
+            return [{
+                'article_id': article['article_id'],
+                'url': article['url'],
+                'source_id': article['source_id'],
+                'title': article['title']
+            } for article in articles]
                 
         except Exception as e:
             self.logger.error(f"Failed to get pending articles: {e}")

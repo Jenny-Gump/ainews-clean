@@ -16,7 +16,7 @@ from .core import (
 # Import process manager
 from ..process_manager import get_process_manager, ProcessStatus
 
-router = APIRouter(prefix="/api/monitoring", tags=["control"])
+router = APIRouter(prefix="/api", tags=["control"])
 
 @router.get("/dashboard")
 async def get_dashboard_data():
@@ -88,6 +88,39 @@ async def get_dashboard_data():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/control/status")
+async def get_control_status():
+    """Get control panel status information"""
+    try:
+        process_manager = get_process_manager()
+        
+        if process_manager:
+            status = process_manager.get_status()
+            return {
+                "status": status['status'].value if hasattr(status['status'], 'value') else str(status['status']),
+                "pid": status.get('pid'),
+                "uptime_seconds": status.get('uptime_seconds'),
+                "current_source": status.get('current_source'),
+                "progress": status.get('progress', {}),
+                "is_healthy": process_manager.is_process_healthy(),
+                "memory_info": status.get('memory_info'),
+                "timestamp": format_timestamp(datetime.now())
+            }
+        else:
+            return {
+                "status": "unknown",
+                "pid": None,
+                "uptime_seconds": None,
+                "current_source": None,
+                "progress": {},
+                "is_healthy": False,
+                "memory_info": None,
+                "timestamp": format_timestamp(datetime.now())
+            }
+    except Exception as e:
+        logger.error(f"Error getting control status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get control status: {str(e)}")
 
 @router.get("/sources")
 async def get_sources_monitoring(
@@ -233,7 +266,7 @@ async def get_source_details(source_id: str = Path(..., description="Source ID t
             
             # Get basic source info
             cursor.execute(
-                "SELECT name, url, type, status FROM sources WHERE source_id = ?",
+                "SELECT name, url, type, status FROM sources WHERE source_id = %s",
                 (source_id,)
             )
             source_info = cursor.fetchone()
@@ -242,7 +275,7 @@ async def get_source_details(source_id: str = Path(..., description="Source ID t
             cursor.execute("""
                 SELECT article_id, title, published_date, content_status
                 FROM articles 
-                WHERE source_id = ? 
+                WHERE source_id = %s 
                 ORDER BY published_date DESC 
                 LIMIT 10
             """, (source_id,))
@@ -399,7 +432,7 @@ async def get_logs_summary():
             cursor.execute("""
                 SELECT error_type, COUNT(*) as count
                 FROM error_logs
-                WHERE timestamp >= datetime('now', '-24 hours')
+                WHERE timestamp >= NOW() - INTERVAL '-24 hours'
                 GROUP BY error_type
                 ORDER BY count DESC
             """)
@@ -682,7 +715,7 @@ async def emergency_stop_parser():
         logger.error(f"Error during emergency stop: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to emergency stop: {str(e)}")
 
-@router.get("/control/status")
+@router.get("/parser/status")
 async def get_parser_status():
     """Get current parser process status and progress"""
     try:

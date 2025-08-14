@@ -49,14 +49,6 @@
       "category": "ai_companies"
     },
     {
-      "source_id": "huggingface",
-      "name": "Hugging Face Blog",
-      "url": "https://huggingface.co/blog",
-      "rss_url": "https://huggingface.co/blog/feed.xml",
-      "type": "web",
-      "category": "ai_platforms"
-    },
-    {
       "source_id": "google_cloud_ai",
       "name": "Google Cloud AI Blog",
       "url": "https://cloud.google.com/blog/products/ai-machine-learning",
@@ -75,7 +67,7 @@
     {
       "source_id": "databricks_tracking",
       "name": "Databricks Blog",
-      "url": "https://www.databricks.com/blog/category/engineering/ai",
+      "url": "https://www.databricks.com/blog",
       "rss_url": "https://www.databricks.com/blog/feed.xml",
       "type": "web",
       "category": "ai_platforms"
@@ -241,14 +233,6 @@
       "category": "ai_enterprise"
     },
     {
-      "source_id": "standardbots",
-      "name": "Standard Bots Blog",
-      "url": "https://standardbots.com/blog",
-      "rss_url": "https://standardbots.com/blog/feed",
-      "type": "web",
-      "category": "ai_robotics"
-    },
-    {
       "source_id": "abb_robotics",
       "name": "ABB Robotics News",
       "url": "https://new.abb.com/products/robotics/news-and-media",
@@ -281,6 +265,14 @@
       "category": "ai_robotics"
     },
     {
+      "source_id": "kuka_com",
+      "name": "KUKA Robotics News",
+      "url": "https://www.kuka.com/company/press/news",
+      "rss_url": "",
+      "type": "web",
+      "category": "ai_robotics"
+    },
+    {
       "source_id": "tempus",
       "name": "Tempus Tech Blog",
       "url": "https://www.tempus.com/tech-blog/",
@@ -293,14 +285,6 @@
       "name": "PathAI News",
       "url": "https://www.pathai.com/news/",
       "rss_url": "https://www.pathai.com/news/rss",
-      "type": "web",
-      "category": "ai_healthcare"
-    },
-    {
-      "source_id": "augmedix",
-      "name": "Augmedix Press Room",
-      "url": "https://www.augmedix.com/press-room",
-      "rss_url": "https://www.augmedix.com/press-room/rss.xml",
       "type": "web",
       "category": "ai_healthcare"
     },
@@ -339,7 +323,7 @@
     {
       "source_id": "perplexity",
       "name": "Perplexity AI Blog",
-      "url": "https://blog.perplexity.ai/",
+      "url": "https://www.perplexity.ai/hub",
       "rss_url": "https://blog.perplexity.ai/rss",
       "type": "web",
       "category": "ai_companies"
@@ -351,14 +335,6 @@
       "rss_url": "https://cerebras.ai/blog/rss",
       "type": "web",
       "category": "ai_infrastructure"
-    },
-    {
-      "source_id": "runway",
-      "name": "Runway ML Research",
-      "url": "https://research.runwayml.com/",
-      "rss_url": "https://research.runwayml.com/rss",
-      "type": "web",
-      "category": "ai_companies"
     },
     {
       "source_id": "suno",

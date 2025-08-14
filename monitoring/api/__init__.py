@@ -19,7 +19,9 @@ from .core import set_monitoring_db
 from .control import router as control_router
 from .articles import router as articles_router
 from .memory import router as memory_router
-from .pipeline import router as pipeline_router
+from .pipeline_supabase import router as pipeline_router
+from .context_enrichment import router as context_enrichment_router
+# from .extract import router as extract_router  # Disabled - using api_rss_endpoints.py instead
 
 # Create additional routers for functionality not yet moved
 from fastapi import HTTPException, Query, Path
@@ -35,6 +37,9 @@ from .core import (
 
 # Logs router
 logs_router = APIRouter(prefix="/api/logs", tags=["logs"])
+
+# Monitoring sources router
+monitoring_router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 @logs_router.get("/recent")
 async def get_logs_recent(limit: int = Query(100, ge=1, le=500)):
@@ -80,7 +85,7 @@ async def get_rss_status():
             cursor.execute("""
                 SELECT COUNT(*) FROM articles 
                 WHERE source_id IN (SELECT source_id FROM sources WHERE type = 'rss')
-                AND DATE(created_at) = DATE('now')
+                AND created_at::date = DATE('now')
             """)
             articles_today = cursor.fetchone()[0]
         
@@ -224,7 +229,7 @@ async def get_source_last_parsed(source_id: str):
         with get_ainews_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT source_id, name FROM sources WHERE source_id = ?",
+                "SELECT source_id, name FROM sources WHERE source_id = %s",
                 (source_id,)
             )
             result = cursor.fetchone()
@@ -260,7 +265,7 @@ async def update_source_last_parsed(
             # Check if source exists
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT source_id FROM sources WHERE source_id = ?",
+                "SELECT source_id FROM sources WHERE source_id = %s",
                 (source_id,)
             )
             if not cursor.fetchone():
@@ -328,6 +333,98 @@ async def bulk_update_last_parsed(updates: List[Dict[str, str]]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to bulk update last parsed: {str(e)}")
 
+# Monitoring sources endpoints
+@monitoring_router.get("/sources/last-parsed")
+async def get_sources_last_parsed():
+    """Get last parsed timestamp for all sources"""
+    try:
+        # Read from local config file
+        import json
+        from pathlib import Path
+        
+        config_file = Path(__file__).parent.parent.parent / "data" / "last_parsed.json"
+        
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                data = json.load(f)
+                last_parsed = data.get("last_parsed")
+        else:
+            last_parsed = None
+        
+        # Get sources from database
+        sources = []
+        if monitoring_db := get_monitoring_db():
+            try:
+                result = monitoring_db.get_sources()
+                for source in result:
+                    sources.append({
+                        "source_id": source.get("source_id"),
+                        "source_name": source.get("name"),
+                        "last_parsed": last_parsed,  # Same for all sources
+                        "type": source.get("type", "rss")
+                    })
+            except:
+                pass
+        
+        # If no sources from DB, return default
+        if not sources:
+            sources = [{
+                "source_id": "default",
+                "source_name": "All Sources",
+                "last_parsed": last_parsed,
+                "type": "global"
+            }]
+        
+        return {
+            "sources": sources,
+            "global_last_parsed": last_parsed
+        }
+        
+    except Exception as e:
+        return {
+            "sources": [],
+            "error": str(e)
+        }
+
+@monitoring_router.put("/sources/{source_id}/last-parsed")
+async def update_source_last_parsed(
+    source_id: str,
+    last_parsed: str = Query(..., description="Last parsed timestamp in ISO format")
+):
+    """Update last parsed timestamp (affects all sources)"""
+    try:
+        # Validate timestamp format
+        from datetime import datetime
+        try:
+            datetime.fromisoformat(last_parsed.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid timestamp format")
+        
+        # Store in local config file
+        import json
+        from pathlib import Path
+        
+        config_file = Path(__file__).parent.parent.parent / "data" / "last_parsed.json"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(config_file, 'w') as f:
+            json.dump({
+                "last_parsed": last_parsed,
+                "updated_at": datetime.now().isoformat()
+            }, f)
+        
+        return {
+            "success": True,
+            "source_id": source_id,
+            "last_parsed": last_parsed,
+            "message": "Global last parsed timestamp updated (affects all sources)"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Create main router that includes all sub-routers
 router = APIRouter()
 
@@ -336,6 +433,9 @@ router.include_router(control_router)
 router.include_router(articles_router)  
 router.include_router(memory_router)
 router.include_router(pipeline_router)  # Single pipeline monitoring
+router.include_router(context_enrichment_router)  # Context Enrichment monitoring
+# router.include_router(extract_router)  # Disabled - using api_rss_endpoints.py instead
+router.include_router(monitoring_router)  # Monitoring sources endpoints
 router.include_router(logs_router)
 router.include_router(rss_router)
 router.include_router(profiling_router)

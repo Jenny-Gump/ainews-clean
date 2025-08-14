@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Загружаем переменные окружения
 load_dotenv()
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from core.config import Config
 from core.single_pipeline import SingleArticlePipeline
 from app_logging import configure_logging, get_logger, LogContext, log_operation
@@ -47,10 +47,8 @@ def parse_arguments():
 📡 RSS Discovery (поиск новых статей):
   python core/main.py --rss-discover
 
-🚀 Single Pipeline (обработка 1 статьи через все фазы):
-  python core/main.py --single-pipeline
-
-🔄 Continuous Pipeline (обработка ВСЕХ pending статей):
+🔄 Continuous Pipeline (обработка ВСЕХ pending статей) - ОСНОВНОЙ РЕЖИМ:
+  python core/main.py  # запуск без параметров = continuous-pipeline
   python core/main.py --continuous-pipeline
   python core/main.py --continuous-pipeline --max-articles 10
   python core/main.py --continuous-pipeline --delay-between 10
@@ -70,17 +68,12 @@ def parse_arguments():
 
 РЕКОМЕНДУЕМЫЙ WORKFLOW:
   1. python core/main.py --rss-discover  # Найти новые статьи
-  2. python core/main.py --continuous-pipeline  # Обработать ВСЕ статьи
-  
-АЛЬТЕРНАТИВНЫЙ WORKFLOW (по одной):
-  1. python core/main.py --rss-discover  # Найти новые статьи
-  2. python core/main.py --single-pipeline  # Обработать 1 статью
-  3. Повторить шаг 2 для обработки следующих статей
+  2. python core/main.py  # Обработать ВСЕ статьи (continuous режим по умолчанию)
   
 WORKFLOW С CHANGE TRACKING:
   1. python core/main.py --change-tracking --scan  # Сканировать изменения
   2. python core/main.py --change-tracking --export  # Экспорт в основной пайплайн
-  3. python core/main.py --continuous-pipeline  # Обработать ВСЕ
+  3. python core/main.py  # Обработать ВСЕ (continuous режим по умолчанию)
         """
     )
     
@@ -93,11 +86,6 @@ WORKFLOW С CHANGE TRACKING:
         help='Phase 1: Найти новые статьи из RSS лент'
     )
     
-    mode_group.add_argument(
-        '--single-pipeline',
-        action='store_true',
-        help='Обработать ОДНУ статью через все фазы (2-5)'
-    )
     
     mode_group.add_argument(
         '--continuous-pipeline',
@@ -344,19 +332,19 @@ async def process_specific_article(article_id: str):
         pipeline = SingleArticlePipeline()
         
         # Получаем статью из БД
-        db = Database()
-        with db.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM articles WHERE article_id = ?",
-                (article_id,)
-            )
-            row = cursor.fetchone()
+        db = DatabaseConfig.get_database()
+        
+        # Используем get_article для поиска статьи по ID
+        try:
+            article = db.get_article(article_id)
             
-            if not row:
+            if not article:
                 logger.error(f"❌ Статья {article_id} не найдена")
                 return {"success": False, "error": "Article not found"}
             
-            article = dict(row)
+        except Exception as e:
+            logger.error(f"❌ Ошибка при поиске статьи {article_id}: {e}")
+            return {"success": False, "error": f"Database error: {e}"}
         
         # Обрабатываем через пайплайн
         result = await pipeline.process_single_article(article)
@@ -372,171 +360,146 @@ async def process_specific_article(article_id: str):
 def show_stats():
     """Показать статистику системы"""
     logger = get_logger('core.main')
-    db = Database()
+    db = DatabaseConfig.get_database()
     
-    with db.get_connection() as conn:
-        # Статистика по статьям
-        cursor = conn.execute("""
-            SELECT 
-                content_status,
-                COUNT(*) as count
-            FROM articles
-            GROUP BY content_status
-            ORDER BY count DESC
-        """)
-        
-        logger.info("\n📊 СТАТИСТИКА СТАТЕЙ:")
-        logger.info("-" * 40)
-        total = 0
-        for row in cursor:
-            status = row['content_status'] or 'unknown'
-            count = row['count']
-            total += count
-            emoji = {
-                'pending': '⏳',
-                'parsed': '📄',
-                'published': '✅',
-                'failed': '❌',
-                'completed': '✅'
-            }.get(status, '❓')
-            logger.info(f"{emoji} {status:15} {count:5} статей")
-        logger.info("-" * 40)
-        logger.info(f"📚 ВСЕГО:           {total:5} статей\n")
-        
-        # Статистика по источникам
-        cursor = conn.execute("""
-            SELECT 
-                s.name,
-                s.source_id,
-                COUNT(a.article_id) as article_count,
-                MAX(a.created_at) as last_article
-            FROM sources s
-            LEFT JOIN articles a ON s.source_id = a.source_id
-            GROUP BY s.source_id
-            ORDER BY article_count DESC
-            LIMIT 10
-        """)
-        
+    # Используем методы database напрямую для совместимости
+    stats = db.get_stats()
+    
+    logger.info("\n📊 СТАТИСТИКА СТАТЕЙ:")
+    logger.info("-" * 40)
+    
+    # Статистика по статьям из готовых методов
+    articles_by_status = stats.get('articles', {}).get('by_status', {})
+    total = stats.get('articles', {}).get('total', 0)
+    
+    for status, count in articles_by_status.items():
+        emoji = {
+            'pending': '⏳',
+            'parsed': '📄', 
+            'published': '✅',
+            'failed': '❌',
+            'completed': '✅'
+        }.get(status, '❓')
+        logger.info(f"{emoji} {status:15} {count:5} статей")
+    
+    logger.info("-" * 40)
+    logger.info(f"📚 ВСЕГО:           {total:5} статей\n")
+    
+    # ТОП источники (получаем через отдельный метод)
+    try:
+        top_sources = db.get_sources_with_stats()[:10]
+    except:
+        top_sources = []
+    if top_sources:
         logger.info("📡 ТОП-10 ИСТОЧНИКОВ:")
         logger.info("-" * 60)
-        logger.info(f"{'Источник':<30} {'Статей':>10} {'Последняя':<20}")
+        logger.info(f"{'Источник':<30} {'Статей':>10} {'Рейтинг':<10}")
         logger.info("-" * 60)
-        for row in cursor:
-            name = row['name'][:30]
-            count = row['article_count']
-            last = row['last_article'] or 'Never'
-            if last != 'Never':
-                last = last.split('.')[0]  # Убираем микросекунды
-            logger.info(f"{name:<30} {count:>10} {last:<20}")
-        
-        # Статистика по медиа
-        cursor = conn.execute("""
-            SELECT 
-                status,
-                COUNT(*) as count
-            FROM media_files
-            GROUP BY status
-        """)
-        
-        media_stats = list(cursor)
-        if media_stats:
-            logger.info("\n🖼️ СТАТИСТИКА МЕДИАФАЙЛОВ:")
-            logger.info("-" * 40)
-            for row in media_stats:
-                status = row['status']
-                count = row['count']
-                logger.info(f"  {status:15} {count:5} файлов")
-        
-        # WordPress статистика
-        cursor = conn.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN published_to_wp = 1 THEN 1 ELSE 0 END) as published
-            FROM wordpress_articles
-        """)
-        
-        wp_stats = cursor.fetchone()
-        if wp_stats and wp_stats['total'] > 0:
-            logger.info(f"\n📝 WORDPRESS:")
-            logger.info("-" * 40)
-            logger.info(f"  Подготовлено:    {wp_stats['total']:5} статей")
-            logger.info(f"  Опубликовано:    {wp_stats['published']:5} статей")
+        for source in top_sources:
+            name = source.get('name', source.get('source_id', 'Unknown'))[:30]
+            count = source.get('article_count', 0)
+            rate = "N/A"
+            logger.info(f"{name:<30} {count:>10} {rate:<10}")
+    
+    # Статистика по медиа
+    media_by_status = stats.get('media', {}).get('by_status', {})
+    if media_by_status:
+        logger.info("\n🖼️ СТАТИСТИКА МЕДИАФАЙЛОВ:")
+        logger.info("-" * 40)
+        for status, count in media_by_status.items():
+            logger.info(f"  {status:15} {count:5} файлов")
+    
+    # Общие счетчики
+    logger.info(f"\n📈 ОБЩАЯ СТАТИСТИКА:")
+    logger.info("-" * 40)
+    logger.info(f"  Источников:      {stats.get('sources', 0):5}")
+    logger.info(f"  Статей:          {stats.get('articles', {}).get('total', 0):5}")
+    logger.info(f"  Медиафайлов:     {stats.get('media', {}).get('total', 0):5}")
 
 
 def show_sources():
     """Показать список источников"""
-    db = Database()
+    logger = get_logger('core.main')
+    db = DatabaseConfig.get_database()
     
-    with db.get_connection() as conn:
-        cursor = conn.execute("""
-            SELECT 
-                source_id,
-                name,
-                url,
-                category,
-                (SELECT COUNT(*) FROM articles WHERE source_id = s.source_id) as article_count
-            FROM sources s
-            ORDER BY category, name
-        """)
+    # Используем метод get_sources_with_stats для получения источников со статистикой
+    sources_with_stats = db.get_sources_with_stats()
+    
+    logger.info("\n📡 ИСТОЧНИКИ НОВОСТЕЙ:")
+    logger.info("=" * 80)
+    
+    # Группируем по категориям
+    sources_by_category = {}
+    for source in sources_with_stats:
+        category = source.get('category', 'Uncategorized')
+        if category not in sources_by_category:
+            sources_by_category[category] = []
+        sources_by_category[category].append(source)
+    
+    # Выводим по категориям
+    for category, sources in sorted(sources_by_category.items()):
+        logger.info(f"\n{category}:")
+        logger.info("-" * 80)
         
-        logger.info("\n📡 ИСТОЧНИКИ НОВОСТЕЙ:")
-        logger.info("=" * 80)
-        
-        current_category = None
-        for row in cursor:
-            if row['category'] != current_category:
-                current_category = row['category']
-                logger.info(f"\n{current_category or 'Uncategorized'}:")
-                logger.info("-" * 80)
-            
-            logger.info(f"📡 {row['name']:<30} [{row['article_count']:>3} статей]")
-            logger.info(f"   {row['url'][:70]}")
+        for source in sorted(sources, key=lambda x: x.get('name', '')):
+            name = source.get('name', 'Unknown')[:30]
+            article_count = source.get('article_count', 0)
+            url = source.get('url', '')[:70]
+            logger.info(f"📡 {name:<30} [{article_count:>3} статей]")
+            logger.info(f"   {url}")
 
 
 def cleanup_old_articles(days: int = 30):
     """Очистка старых статей"""
     logger = get_logger('core.main')
-    db = Database()
+    db = DatabaseConfig.get_database()
     
-    with db.get_connection() as conn:
-        # Подсчитываем сколько удалим
-        cursor = conn.execute("""
-            SELECT COUNT(*) as count
-            FROM articles
-            WHERE created_at < datetime('now', ? || ' days')
-        """, (-days,))
+    # Подсчитываем сколько удалим используя _execute_sql
+    try:
+        count_result = db._execute_sql(
+            "SELECT COUNT(*) as count FROM articles WHERE created_at < datetime('now', ? || ' days')",
+            [-days]
+        )
         
-        count = cursor.fetchone()['count']
+        count = count_result[0]['count'] if count_result else 0
         
         if count == 0:
             logger.info(f"Нет статей старше {days} дней для удаления")
             return
         
         # Удаляем старые статьи
-        conn.execute("""
-            DELETE FROM articles
-            WHERE created_at < datetime('now', ? || ' days')
-        """, (-days,))
+        db._execute_sql(
+            "DELETE FROM articles WHERE created_at < datetime('now', ? || ' days')",
+            [-days]
+        )
         
         # Удаляем осиротевшие медиафайлы
-        conn.execute("""
-            DELETE FROM media_files
-            WHERE article_id NOT IN (SELECT article_id FROM articles)
-        """)
+        db._execute_sql(
+            "DELETE FROM media_files WHERE article_id NOT IN (SELECT article_id FROM articles)",
+            []
+        )
         
-        # Удаляем осиротевшие WordPress статьи
-        conn.execute("""
-            DELETE FROM wordpress_articles
-            WHERE article_id NOT IN (SELECT article_id FROM articles)
-        """)
+        # Удаляем осиротевшие WordPress статьи (если таблица существует)
+        try:
+            db._execute_sql(
+                "DELETE FROM wordpress_articles WHERE article_id NOT IN (SELECT article_id FROM articles)",
+                []
+            )
+        except Exception as e:
+            logger.warning(f"WordPress articles cleanup skipped: {e}")
         
-        conn.commit()
-        
-        # VACUUM для оптимизации
-        conn.execute("VACUUM")
+        # VACUUM для оптимизации (может не поддерживаться в Supabase)
+        try:
+            db._execute_sql("VACUUM", [])
+        except Exception as e:
+            logger.warning(f"VACUUM operation skipped: {e}")
         
         logger.info(f"✅ Удалено {count} статей старше {days} дней")
         logger.info(f"✅ Очистка завершена: удалено {count} статей")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при очистке статей: {e}")
+        raise
 
 
 async def run_change_tracking(args):
@@ -984,9 +947,6 @@ async def main():
         if args.rss_discover:
             await run_rss_discovery()
             
-        elif args.single_pipeline:
-            await run_single_pipeline()
-            
         elif args.continuous_pipeline:
             # Запуск continuous mode с параметрами
             await run_continuous_pipeline(
@@ -1010,8 +970,9 @@ async def main():
             await run_change_tracking(args)
             
         else:
-            logger.info("❌ Не указана команда. Используйте --help для справки")
-            sys.exit(1)
+            # По умолчанию запускаем continuous-pipeline
+            logger.info("🔄 Запуск по умолчанию: continuous-pipeline")
+            await run_continuous_pipeline()
             
     except KeyboardInterrupt:
         logger.info("⚠️ Остановлено пользователем")

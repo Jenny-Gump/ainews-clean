@@ -201,8 +201,11 @@ python core/main.py --change-tracking --scan --limit 5
 # Показать статистику по источникам
 python core/main.py --stats
 
-# SQL запрос для проверки источников в БД
-sqlite3 data/ainews.db "SELECT source_id, name, total_articles FROM sources ORDER BY total_articles DESC LIMIT 10"
+# SQL запрос для проверки источников в Supabase
+# Используйте Supabase Dashboard или MCP server:
+# SELECT source_id, name, COUNT(articles.article_id) as total_articles 
+# FROM sources LEFT JOIN articles ON sources.source_id = articles.source_id 
+# GROUP BY sources.source_id, sources.name ORDER BY total_articles DESC LIMIT 10
 ```
 
 ---

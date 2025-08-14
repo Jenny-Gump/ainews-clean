@@ -76,14 +76,21 @@ def download_media_files(article_id):
 ### Phase 4: WordPress Translation (Перевод)
 **Файл:** `services/wordpress_publisher.py`
 
-#### 4.1 Перевод метаданных
+#### 4.1 Перевод метаданных (DeepSeek Chat)
 ```python
 def _translate_media_metadata(metadata):
-    # Переводим alt-text на русский
+    # Переводим alt-text на русский через DeepSeek
     prompt = load_prompt('image_metadata', 
-        alt_text=metadata['alt_text'])
+        alt_text=metadata['alt_text'],
+        article_title=metadata['article_title'])
     
-    # DeepSeek переводит
+    # DeepSeek Chat переводит (НОВОЕ с 11.08.2025)
+    response = self.deepseek_client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    
     translated = {
         'alt_text_ru': "Изображение показывает...",
         'slug': 'izobrazhenie-pokazyvaet'
@@ -180,22 +187,35 @@ SELECT COALESCE(wp_source_url, url) as display_url
 - Если `wp_source_url` есть → используем локальный URL
 - Если нет → fallback на внешний URL
 
-## Проблема и решение (август 2025)
+## Критические исправления (август 2025)
 
-### Проблема
-Статьи публиковались с внешними URL изображений, хотя медиа успешно загружалось в WordPress.
+### Проблема #1: Внешние URL вместо локальных
+**Симптом**: Статьи публиковались с внешними URL изображений, хотя медиа успешно загружалось в WordPress.
 
-### Причина
+**Причина**:
 1. `_prepare_wordpress_post()` заменял плейсхолдеры ДО загрузки медиа
 2. В момент замены `wp_source_url = NULL`
 3. COALESCE возвращал внешний URL
 4. Медиа загружалось ПОСЛЕ создания поста
 
-### Решение
+**Решение**:
 1. Создаем пост с плейсхолдерами `[IMAGE_N]`
 2. Загружаем медиа → получаем `wp_source_url`
 3. Заменяем плейсхолдеры на локальные URL
 4. Обновляем контент через WordPress REST API
+
+### Проблема #2: OpenAI API ключ блокировал медиа
+**Симптом**: Медиа файлы не загружались в WordPress, система зависала на переводе метаданных.
+
+**Причина**: 
+- OpenAI API ключ был неправильным/просроченным
+- `_translate_media_metadata()` падал с 401 ошибкой
+- Без переведенных метаданных загрузка в WordPress не происходила
+
+**Решение (11 августа 2025)**:
+- Заменили OpenAI на DeepSeek Chat для перевода метаданных
+- Система стала полностью независимой от OpenAI
+- Медиа пайплайн работает стабильно
 
 ### Изменения в коде
 

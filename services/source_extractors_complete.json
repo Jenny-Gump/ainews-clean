@@ -68,8 +68,7 @@
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog",
       "patterns": [
-        "\\[\\*\\*([^*]+)\\*\\*[^\\]]*\\]\\((https://huggingface\\.co/blog/[^)]+)\\)",
-        "\\]\\((https://huggingface\\.co/blog/[^)]+)\\)"
+        "([^]]*?(?:\\\\\\\\[^]]*?)*?)\\]\\((https://huggingface\\.co/blog/[^)]+)\\)"
       ],
       "title_extraction": [
         "\\*\\*([^*]+)\\*\\*"
@@ -80,7 +79,7 @@
         "•.*$"
       ],
       "exclude_urls": [
-        "/models", "/datasets", "/spaces", "/docs", "/community", "/assets/", "\\.png$", "\\.jpg$", "\\.gif$"
+        "/models", "/datasets", "/spaces", "/docs", "/community", "/assets/", "\\.png$", "\\.jpg$", "\\.gif$", "/community$"
       ],
       "status": "configured"
     },
@@ -203,21 +202,6 @@
       "exclude_urls": [
         "/about"
       ],
-      "status": "configured"
-    },
-    "runway": {
-      "name": "Runway ML Research",
-      "url": "https://research.runwayml.com/",
-      "patterns": [
-        "\\]\\((https://research\\.runwayml\\.com/[^)]+)\\)"
-      ],
-      "title_extraction": [
-        "\\[([^\\]]+)\\]\\("
-      ],
-      "title_cleanup": [
-        "^Runway:\\s*"
-      ],
-      "exclude_urls": [],
       "status": "configured"
     },
     "scale": {
@@ -488,21 +472,6 @@
       ],
       "title_cleanup": [
         "^Waymo:\\s*"
-      ],
-      "exclude_urls": [],
-      "status": "configured"
-    },
-    "standardbots": {
-      "name": "Standard Bots Blog",
-      "url": "https://standardbots.com/blog",
-      "patterns": [
-        "\\]\\((https://standardbots\\.com/blog/[^)]+)\\)"
-      ],
-      "title_extraction": [
-        "\\[([^\\]]+)\\]\\("
-      ],
-      "title_cleanup": [
-        "^Standard Bots:\\s*"
       ],
       "exclude_urls": [],
       "status": "configured"

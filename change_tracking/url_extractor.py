@@ -11,7 +11,7 @@ from urllib.parse import urlparse, urljoin
 from typing import List, Dict, Optional, Set
 from datetime import datetime, timezone
 
-from app_logging import get_logger
+from app_logging import get_logger, log_operation
 
 
 class URLExtractor:
@@ -52,7 +52,7 @@ class URLExtractor:
             
             # Platforms & Infrastructure
             'huggingface.co': [r'/blog/', r'/papers/'],
-            'blog.cloudflare.com': [r'/[a-z0-9-]+/?$'],  # Улучшенный паттерн
+            'blog.cloudflare.com': [r'/[a-z0-9-]+(-[a-z0-9-]*)*/?$'],  # Исправленный паттерн для статей
             'cursor.com': [r'/blog/[^/]+'],  # Статьи в /blog/
             'cursor.sh': [r'/blog/[^/]+'],  # Альтернативный домен Cursor
             'crusoe.ai': [r'/resources/blog/[^/]+'],  # ИСПРАВЛЕНО
@@ -65,6 +65,8 @@ class URLExtractor:
             
             # News & Media
             'blog.perplexity.ai': [r'/[^/]+$'],
+            'perplexity.ai': [r'/hub/blog/[^/]+'],  # Реальный путь к блогу
+            'www.perplexity.ai': [r'/hub/'],  # Hub страницы
             'the-decoder.com': [r'/[^/]+/$'],
             'techcrunch.com': [r'/category/artificial-intelligence/'],
             'venturebeat.com': [r'/ai/'],
@@ -87,16 +89,16 @@ class URLExtractor:
             
             # Robotics
             'waymo.com': [r'/blog/\d{4}/\d{2}/'],
-            'standardbots.com': [r'/blog/[^/]+'],
             'new.abb.com': [r'/news/'],
             'fanucamerica.com': [r'/news/'],
-            'kinovarobotics.com': [r'/news/'],
+            'kinovarobotics.com': [r'/p/[^/]+'],  # Статьи в /p/
+            'kuka.com': [r'/company/press/news/\d{4}/\d{2}/[^/]+'],  # Новости KUKA
             'doosanrobotics.com': [r'/news/'],
             'manus.im': [r'/blog/[^/]+'],
             
             # Healthcare AI
             'tempus.com': [r'/blog/[^/]+'],
-            'pathai.com': [r'/news/[^/]+'],
+            'pathai.com': [r'/news/'],
             'augmedix.com': [r'/press-room/[^/]+'],
             'openevidence.com': [r'/announcements/[^/]+'],
             
@@ -105,12 +107,11 @@ class URLExtractor:
             'ai.stanford.edu': [r'/blog/'],
             
             # Other
-            'writer.com': [r'/blog/[^/]+'],
+            'writer.com': [r'/engineering/[^/]+'],
             'uizard.io': [r'/blog/[^/]+'],
             'soundhound.com': [r'/blog/[^/]+'],
             'audioscenic.com': [r'/news/[^/]+'],
             'suno.com': [r'/blog/[^/]+'],
-            'research.runwayml.com': [r'/papers/[^/]+'],
             
             # Machine Learning Frameworks
             'pytorch.org': [r'/blog/'],
@@ -226,10 +227,12 @@ class URLExtractor:
             r'manifest\.json',
         ]
         
-    def extract_urls_from_content(
+    async def extract_urls_from_content(
         self, 
         markdown_content: str, 
-        source_page_url: str
+        source_page_url: str,
+        use_page_titles: bool = True,
+        firecrawl_client = None
     ) -> List[Dict[str, str]]:
         """
         Извлекает URL статей из markdown контента
@@ -237,6 +240,8 @@ class URLExtractor:
         Args:
             markdown_content: Markdown контент страницы
             source_page_url: URL исходной страницы
+            use_page_titles: Если True, получает заголовки через Firecrawl API
+            firecrawl_client: Клиент Firecrawl для получения заголовков
             
         Returns:
             List[Dict] со структурой:
@@ -255,7 +260,18 @@ class URLExtractor:
         source_domain = self._get_source_domain(source_page_url)
         base_url = self._get_base_url(source_page_url)
         
-        # Извлекаем все ссылки из markdown
+        # Специальная обработка для источников с escape-последовательностями
+        escape_sources = [
+            'deepmind.google', 'new.abb.com', 'scale.com', 'stability.ai', 'waymo.com', 'c3.ai', 'crusoe.ai', 'cursor.com',
+            'databricks.com', 'research.google', 'instabase.com', 'kinovarobotics.com', 'kuka.com', 'manus.im',
+            'openevidence.com', 'huggingface.co', 'pathai.com', 'www.perplexity.ai', 'soundhound.com',
+            'uizard.io', 'writer.com'
+        ]
+        
+        if any(domain in source_page_url for domain in escape_sources):
+            found_urls.extend(self._extract_escape_links(markdown_content, source_page_url, source_domain))
+        
+        # Извлекаем все ссылки из markdown обычным способом
         all_links = self._extract_all_links(markdown_content)
         
         # Фильтруем и обрабатываем ссылки
@@ -266,16 +282,28 @@ class URLExtractor:
             if not normalized_url:
                 continue
                 
-            # Очищаем заголовок
-            clean_title = self._clean_title(title)
-            if not clean_title:
+            # Получаем заголовок
+            if use_page_titles and firecrawl_client:
+                # Пытаемся получить реальный заголовок через Firecrawl API
+                real_title = await self._get_page_title(normalized_url, firecrawl_client)
+                if real_title:
+                    final_title = real_title
+                    self.logger.info(f"✅ Using real title: {real_title[:50]}...")
+                else:
+                    final_title = self._clean_title(title)
+                    self.logger.info(f"⚠️ Using fallback title: {final_title}")
+            else:
+                # Используем старый способ - очищаем заголовок из ссылки
+                final_title = self._clean_title(title)
+            
+            if not final_title:
                 continue  # Пропускаем если заголовок нерелевантный
                 
             # Проверяем что это релевантная статья
             if self._is_article_url(normalized_url, source_page_url):
                 found_urls.append({
                     'article_url': normalized_url,
-                    'article_title': clean_title,
+                    'article_title': final_title,
                     'source_domain': source_domain
                 })
         
@@ -288,6 +316,19 @@ class URLExtractor:
                 unique_urls.append(item)
         
         self.logger.info(f"Extracted {len(unique_urls)} unique URLs from {source_page_url}")
+        
+        # Log to operations for monitoring
+        try:
+            log_operation('change_tracking_urls_extracted',
+                phase='change_tracking',
+                source_url=source_page_url,
+                urls_found=len(unique_urls),
+                source_domain=source_domain,
+                success=True
+            )
+        except Exception as e:
+            self.logger.debug(f"Failed to log operation: {e}")
+        
         return unique_urls
     
     def _extract_all_links(self, content: str) -> List[tuple]:
@@ -300,7 +341,7 @@ class URLExtractor:
         cleaned_content = content.replace('\\\\', ' ').replace('\\', ' ')
         
         # Также ищем ссылки в формате ](url) в конце multiline блоков
-        # Паттерн для multiline markdown: текст может быть на нескольких строках
+        # Паттерн для multiline markdown: текст может быть на нескольких строками
         # Изменен паттерн чтобы учитывать пробелы и переносы строк между ] и (
         multiline_pattern = r'\[([^\]]+?)\]\s*\((https?://[^)]+)\)'
         # Добавлен флаг MULTILINE для корректной обработки переносов строк
@@ -321,6 +362,55 @@ class URLExtractor:
                     links.append((match.group(1), match.group(2)))
                     
         return links
+    
+    def _extract_escape_links(self, content: str, source_page_url: str, source_domain: str) -> List[Dict[str, str]]:
+        """Извлекает ссылки из контента с escape-последовательностями \\\\"""
+        escape_links = []
+        
+        # Паттерн для DeepMind/ABB формата: текст\\\\еще текст\\\\дата](url)
+        escape_pattern = r'([^]]*?(?:\\\\[^]]*?)*?)\]\((https?://[^)]+)\)'
+        matches = re.finditer(escape_pattern, content, re.IGNORECASE | re.DOTALL)
+        
+        for match in matches:
+            text_block = match.group(1)
+            url = match.group(2).strip()
+            
+            # Нормализуем URL
+            normalized_url = self._normalize_url(url, source_page_url)
+            if not normalized_url or not self._is_article_url(normalized_url, source_page_url):
+                continue
+                
+            # Извлекаем заголовок из текстового блока
+            lines = text_block.split('\\\\')
+            title = None
+            longest_title = ''
+            skip_categories = ['Models', 'Science', 'Research', 'Company', 'Responsibility & Safety',
+                              'Press release', 'Group press release', 'Customer story']
+            
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('![') and not line.startswith('http') and not line.startswith('['):
+                    clean_line = line.replace('**', '').strip()
+                    if clean_line not in skip_categories and len(clean_line) > len(longest_title):
+                        longest_title = clean_line
+            
+            if longest_title:
+                title = longest_title
+            else:
+                # Fallback: генерируем заголовок из URL
+                title = self._generate_title_from_url(normalized_url)
+            
+            # Если все еще нет заголовка, используем дефолтный с контекстом
+            if not title:
+                title = f"Article from {source_domain}"
+            
+            escape_links.append({
+                'article_url': normalized_url,
+                'article_title': title,
+                'source_domain': source_domain
+            })
+        
+        return escape_links
     
     def _normalize_url(self, url: str, base_url: str) -> Optional[str]:
         """Нормализует и валидирует URL"""
@@ -485,6 +575,64 @@ class URLExtractor:
             
         return final_title
     
+    def _generate_title_from_url(self, url: str) -> Optional[str]:
+        """
+        Генерирует заголовок из URL пути
+        
+        Примеры:
+        /blog/ai-powered-hvac-optimization -> "AI Powered HVAC Optimization"
+        /news/2024/05/new-model-release -> "New Model Release"
+        """
+        try:
+            parsed = urlparse(url)
+            path = parsed.path.rstrip('/')
+            
+            # Берем последний сегмент пути
+            segments = [s for s in path.split('/') if s]
+            if not segments:
+                return None
+                
+            # Берем последний значимый сегмент (пропускаем даты и номера)
+            title_segment = None
+            for segment in reversed(segments):
+                # Пропускаем сегменты которые выглядят как даты или номера
+                if not re.match(r'^\d{4}$|^\d{2}$|^\d+$|^page-\d+$', segment):
+                    title_segment = segment
+                    break
+                    
+            if not title_segment:
+                return None
+                
+            # Преобразуем дефисы и подчеркивания в пробелы
+            title = title_segment.replace('-', ' ').replace('_', ' ')
+            
+            # Убираем расширения файлов если есть
+            title = re.sub(r'\.(html?|php|aspx?)$', '', title, flags=re.IGNORECASE)
+            
+            # Капитализируем слова
+            title_words = []
+            for word in title.split():
+                # Не капитализируем короткие служебные слова
+                if len(word) <= 2 and word.lower() in ['a', 'an', 'at', 'by', 'in', 'of', 'on', 'or', 'to']:
+                    title_words.append(word.lower())
+                # Сохраняем аббревиатуры в верхнем регистре
+                elif word.isupper() and len(word) > 1:
+                    title_words.append(word)
+                else:
+                    title_words.append(word.capitalize())
+            
+            final_title = ' '.join(title_words)
+            
+            # Проверяем минимальную длину
+            if len(final_title) < 3:
+                return None
+                
+            return final_title
+            
+        except Exception as e:
+            self.logger.warning(f"Error generating title from URL {url}: {e}")
+            return None
+    
     def _load_tracking_sources(self) -> Dict[str, str]:
         """Загружает маппинг URL -> source_id из tracking_sources.json"""
         sources_map = {}
@@ -562,6 +710,70 @@ class URLExtractor:
                 
         self.logger.info(f"Found {len(new_urls)} new URLs out of {len(current_urls)} total")
         return new_urls
+    
+    async def _get_page_title(self, url: str, firecrawl_client) -> Optional[str]:
+        """
+        Получает реальный заголовок страницы через Firecrawl API
+        
+        Args:
+            url: URL страницы
+            firecrawl_client: Клиент Firecrawl
+            
+        Returns:
+            Заголовок страницы или None если не удалось получить
+        """
+        
+        # ФИЛЬТРАЦИЯ: не запрашиваем заголовки для служебных URL
+        exclude_title_patterns = [
+            r'/_next/',     # Next.js assets  
+            r'/images/',    # Image URLs
+            r'/static/',    # Static files
+            r'\.svg$',      # SVG files
+            r'\.jpg$',      # Image files
+            r'\.png$',      # Image files
+            r'\.gif$',      # Image files
+            r'\.webp$',     # Image files
+            r'cdn\.', r'-cdn\.', # CDN URLs
+            r'twitter\.com', r'x\.com',  # Social media
+            r'linkedin\.com', r'facebook\.com',  # Social media
+            r'/press-kit',  # Large files
+            r'support\.',   # Support sites (usually not articles)
+        ]
+        
+        for pattern in exclude_title_patterns:
+            if re.search(pattern, url, re.IGNORECASE):
+                self.logger.debug(f"⏩ Skipping title fetch for: {url} (matches {pattern})")
+                return None
+        
+        try:
+            self.logger.info(f"🔍 Fetching page title for: {url[:50]}...")
+            
+            # Rate limiting - пауза между запросами
+            import asyncio
+            await asyncio.sleep(2.0)  # 2 секунды пауза для стабильности
+            
+            # Запрашиваем только metadata для экономии токенов
+            scraped_data = await firecrawl_client.scrape_url(
+                url, 
+                formats=['markdown']  # Минимальный формат
+            )
+            
+            # Извлекаем заголовок из метаданных
+            metadata = scraped_data.get('metadata', {})
+            page_title = metadata.get('title', '').strip()
+            
+            if page_title and len(page_title) > 5:  # Минимальная проверка качества
+                # Очищаем заголовок от лишних символов
+                cleaned_title = page_title.replace('\n', ' ').replace('\r', ' ')
+                cleaned_title = ' '.join(cleaned_title.split())  # Нормализуем пробелы
+                
+                self.logger.info(f"✅ Got page title: {cleaned_title[:50]}...")
+                return cleaned_title
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to get page title for {url}: {e}")
+            
+        return None
     
     def get_stats(self, urls: List[Dict[str, str]]) -> Dict[str, int]:
         """Получает статистику извлеченных URL"""

@@ -4,6 +4,7 @@ Main monitoring application
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -12,9 +13,12 @@ import uvicorn
 import asyncio
 import json
 import time
-import sqlite3
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+
+# Load environment variables
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path)
 
 # Custom JSON encoder for datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -40,17 +44,21 @@ from monitoring.api import (
     set_monitoring_db
 )
 from monitoring.api_rss_endpoints import router as extract_router
+from monitoring.api.control import router as control_router
+from monitoring.api.test_endpoints import router as test_router
 # NOTE: extract_api.py was removed during MVP simplification - not needed for core functionality
 # from monitoring.extract_api import router as extract_router
-from monitoring.database import MonitoringDatabase
+from monitoring.supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
 from monitoring.collectors import SystemMetricsCollector, SourceHealthCollector, SystemResourceCollector
 # log_processor removed - Real-time Logs and Errors functionality deleted
 from monitoring.parsing_tracker import ParsingProgressTracker
-from monitoring.automation import AutomationEngine
 from monitoring.memory_monitor import initialize_memory_monitor, get_memory_monitor
 # log_reader removed - Real-time Logs functionality deleted
 from monitoring.process_manager import get_process_manager, ProcessStatus
 from monitoring.rss_monitor import RSSMonitor, RSSIntegration
+from monitoring.realtime_monitor import get_realtime_monitor, init_realtime_monitor
+SupabaseMonitoringAdapter = get_supabase_client  # Compatibility alias
 
 
 # Global collectors and processors
@@ -60,13 +68,14 @@ system_resource_collector = None
 # Removed: log_processor, error_context_collector, log_reader, log_stream_task
 # These were part of Real-time Logs and Errors functionality
 parsing_progress_tracker = None
-automation_engine = None
 broadcast_task = None
 memory_monitor = None
 process_manager = None
 rss_monitor = None
 rss_integration = None
 rss_monitor_task = None
+realtime_monitor = None
+supabase_adapter = None
 
 
 class ConnectionManager:
@@ -315,29 +324,31 @@ async def get_current_system_resources():
             averages = system_resource_collector.get_rolling_averages(minutes=5)
             
             # Get latest metrics from database
-            with sqlite3.connect(system_resource_collector.monitoring_db.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT cpu_percent, memory_percent, disk_percent, 
-                           process_count, ainews_process_count, network_connections
-                    FROM system_metrics
-                    ORDER BY timestamp DESC
-                    LIMIT 1
-                """)
-                row = cursor.fetchone()
-                
-                if row:
-                    return {
-                        "current": {
-                            "cpu_percent": row[0],
-                            "memory_percent": row[1],
-                            "disk_percent": row[2],
-                            "process_count": row[3],
-                            "ainews_process_count": row[4],
-                            "network_connections": row[5]
-                        },
-                        "averages_5min": averages
-                    }
+            try:
+                if hasattr(system_resource_collector.monitoring_db, 'execute_query'):
+                    result = system_resource_collector.monitoring_db.execute_query("""
+                        SELECT cpu_percent, memory_percent, disk_percent, 
+                               process_count, ainews_process_count, network_connections
+                        FROM system_metrics
+                        ORDER BY timestamp DESC
+                        LIMIT 1
+                    """)
+                    
+                    if result:
+                        row = result[0]
+                        return {
+                            "current": {
+                                "cpu_percent": row[0],
+                                "memory_percent": row[1],
+                                "disk_percent": row[2],
+                                "process_count": row[3],
+                                "ainews_process_count": row[4],
+                                "network_connections": row[5]
+                            },
+                            "averages_5min": averages
+                        }
+            except Exception as e:
+                print(f"Error getting system resources from monitoring DB: {e}")
     except Exception as e:
         print(f"Error getting system resources: {e}")
     
@@ -376,7 +387,7 @@ async def get_current_parsing_progress():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global system_collector, health_collector, system_resource_collector, parsing_progress_tracker, automation_engine, broadcast_task, memory_monitor, process_manager, rss_monitor, rss_integration, rss_monitor_task
+    global system_collector, health_collector, system_resource_collector, parsing_progress_tracker, broadcast_task, memory_monitor, process_manager, rss_monitor, rss_integration, rss_monitor_task, realtime_monitor, supabase_adapter
     
     try:
         # Ensure data directory exists - use absolute path to project data directory
@@ -387,6 +398,13 @@ async def lifespan(app: FastAPI):
         db_path = data_dir / "monitoring.db"
         monitoring_db = MonitoringDatabase(str(db_path))
         
+        # Initialize Supabase adapter
+        supabase_adapter = SupabaseMonitoringAdapter(monitoring_db)
+        
+        
+        # Initialize realtime monitor with Supabase support
+        realtime_monitor = await init_realtime_monitor(monitoring_db, manager)
+        
         # Set monitoring database in API module
         from monitoring.api import set_monitoring_db
         set_monitoring_db(monitoring_db)
@@ -396,19 +414,14 @@ async def lifespan(app: FastAPI):
         set_rss_db(monitoring_db)
         
         # Set monitoring database in pipeline API module
-        from monitoring.api.pipeline import set_monitoring_db as set_pipeline_db
+        from monitoring.api.pipeline_supabase import set_monitoring_db as set_pipeline_db
         set_pipeline_db(monitoring_db)
         
-        # Removed: error_context_collector and log_processor initialization
-        # These were part of Real-time Logs and Errors functionality
         
         # Initialize parsing progress tracker
         parsing_progress_tracker = ParsingProgressTracker(monitoring_db)
         parsing_progress_tracker.start()
         
-        # Initialize automation engine
-        automation_engine = AutomationEngine(monitoring_db, None)
-        await automation_engine.start()
         
         # Start collectors with log processor
         system_collector = SystemMetricsCollector(monitoring_db)
@@ -422,7 +435,6 @@ async def lifespan(app: FastAPI):
         # Initialize and start memory monitor with 10GB limit
         memory_monitor = initialize_memory_monitor(monitoring_db, max_memory_gb=10.0)
         
-        # Register cleanup callbacks for memory monitor
         # (LogProcessor cleanup removed as it was part of deleted Real-time Logs functionality)
         memory_monitor.register_cleanup_callback(
             lambda: system_collector._clear_caches() if system_collector and hasattr(system_collector, '_clear_caches') else None,
@@ -596,7 +608,6 @@ async def lifespan(app: FastAPI):
         if broadcast_task and not broadcast_task.done():
             broadcast_task.cancel()
         
-        # Removed: log_stream_task cancel - Real-time Logs functionality deleted
         
         # Cancel RSS monitor task if it exists
         if rss_monitor_task and not rss_monitor_task.done():
@@ -608,16 +619,14 @@ async def lifespan(app: FastAPI):
             health_collector.stop()
         if system_resource_collector:
             system_resource_collector.stop()
-        # Removed: log_processor.stop() - Real-time Logs functionality deleted
         if parsing_progress_tracker:
             parsing_progress_tracker.stop()
-        if automation_engine:
-            await automation_engine.stop()
         if memory_monitor:
             memory_monitor.stop()
-        # Removed: log_reader.stop() - Real-time Logs functionality deleted
         if rss_monitor:
             rss_monitor.stop_monitoring()
+        if realtime_monitor:
+            await realtime_monitor.stop()
         
         print("Monitoring system stopped")
     except Exception as e:
@@ -650,7 +659,6 @@ app.include_router(articles_router)
 
 # Include new Memory API routes (Day 4)
 app.include_router(memory_router)
-# errors_router removed - Errors functionality deleted
 
 # Include Pipeline API routes (Single pipeline integration)
 app.include_router(pipeline_router)
@@ -664,9 +672,15 @@ app.include_router(profiling_router)
 # Include Logs API routes
 app.include_router(logs_router)
 
+# Include Control API routes
+app.include_router(control_router)
+
 # Include Database API routes
 from monitoring.api.core import db_router
 app.include_router(db_router)
+
+# Include Test API routes
+app.include_router(test_router)
 
 
 @app.websocket("/ws")
@@ -734,17 +748,20 @@ async def favicon():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    try:
+        from core.db_config import DatabaseConfig
+        db_info = DatabaseConfig.get_database_info()
+    except Exception as e:
+        db_info = {"type": "unknown", "error": str(e)}
+    
     return {
         "status": "healthy",
+        "database": db_info,
+        "realtime_monitor": realtime_monitor is not None and hasattr(realtime_monitor, 'running') and realtime_monitor.running,
         "collectors": {
-            "system": system_collector is not None and system_collector._running,
-            "health": health_collector is not None and health_collector._running,
-            # "log_processor": removed - Real-time Logs functionality deleted
+            "system": system_collector is not None and hasattr(system_collector, '_running') and system_collector._running,
+            "health": health_collector is not None and hasattr(health_collector, '_running') and health_collector._running,
         },
-        "automation": {
-            "enabled": automation_engine is not None,
-            "disabled_sources": len(automation_engine.disabled_sources) if automation_engine else 0
-        }
     }
 
 
@@ -754,32 +771,23 @@ async def get_recent_logs(limit: int = 100, level: Optional[str] = None, compone
     try:
         logs = []
         
-        # First, get logs from error_logs table
-        db_path = os.path.join(os.path.dirname(__file__), "data/monitoring.db")
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Get error logs
-        cursor.execute("""
-            SELECT * FROM error_logs 
-            ORDER BY timestamp DESC 
-            LIMIT ?
-        """, (limit,))
-        
-        for row in cursor.fetchall():
-            log_entry = {
-                'id': row['id'],
-                'timestamp': row['timestamp'],
-                'level': 'ERROR',
-                'logger': row['error_type'] or 'unknown',
-                'message': row['error_message'],
-                'source_id': row['source_id'],
-                'context': json.loads(row['context']) if row['context'] else {}
-            }
-            logs.append(log_entry)
-        
-        conn.close()
+        # Get logs from monitoring database if available
+        global monitoring_db
+        if monitoring_db and hasattr(monitoring_db, 'get_recent_error_logs'):
+            try:
+                error_logs = monitoring_db.get_recent_error_logs(limit=limit)
+                for log_entry in error_logs:
+                    logs.append({
+                        'id': log_entry.get('id'),
+                        'timestamp': log_entry.get('timestamp'),
+                        'level': 'ERROR',
+                        'logger': log_entry.get('error_type', 'unknown'),
+                        'message': log_entry.get('error_message'),
+                        'source_id': log_entry.get('source_id'),
+                        'context': json.loads(log_entry.get('context', '{}')) if log_entry.get('context') else {}
+                    })
+            except Exception as e:
+                print(f"Error getting logs from monitoring DB: {e}")
         
         # Also read recent lines from main log file
         log_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs', 'ai_news_parser.log')
@@ -908,11 +916,24 @@ if __name__ == "__main__":
     create_pid_file()
     
     try:
+        # Get port from command line arguments or use default
+        import sys
+        port = 8001
+        if len(sys.argv) > 1:
+            for i, arg in enumerate(sys.argv):
+                if arg == '--port' and i + 1 < len(sys.argv):
+                    try:
+                        port = int(sys.argv[i + 1])
+                    except ValueError:
+                        pass
+        
+        print(f"🚀 Starting monitoring server on port {port}")
+        
         # Run the monitoring server
         uvicorn.run(
             app,
             host="127.0.0.1",
-            port=8001,  # Different port from main visualizer
+            port=port,
             log_level="info"
         )
     except KeyboardInterrupt:

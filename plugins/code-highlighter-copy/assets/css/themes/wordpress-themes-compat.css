@@ -1,0 +1,311 @@
+/**
+ * Code Highlighter Copy - WordPress Themes Compatibility
+ * Custom styles for popular WordPress themes
+ */
+
+/* ===========================
+   Twenty Twenty-One Theme
+   =========================== */
+.theme-twentytwentyone .chcb-code-block,
+body.twentytwentyone-theme .chcb-code-block {
+    margin: var(--global--spacing-vertical, 2em) 0;
+    font-family: var(--global--font-secondary, monospace);
+}
+
+.theme-twentytwentyone .chcb-code-block pre {
+    font-size: var(--global--font-size-xs, 14px);
+}
+
+.theme-twentytwentyone.is-dark-theme .chcb-code-block {
+    background: var(--global--color-background, #1e1e1e);
+}
+
+/* ===========================
+   Twenty Twenty-Two Theme
+   =========================== */
+.wp-site-blocks .chcb-code-block {
+    margin-top: var(--wp--preset--spacing--50, 2em);
+    margin-bottom: var(--wp--preset--spacing--50, 2em);
+}
+
+.wp-site-blocks .chcb-code-block pre {
+    font-family: var(--wp--preset--font-family--monospace, monospace);
+    font-size: var(--wp--preset--font-size--small, 14px);
+}
+
+/* ===========================
+   Twenty Twenty-Three Theme
+   =========================== */
+body.wp-embed-responsive .chcb-code-block {
+    max-width: var(--wp--style--global--wide-size, 100%);
+}
+
+/* ===========================
+   Astra Theme
+   =========================== */
+.ast-theme-transparent-header .chcb-code-block,
+.ast-container .chcb-code-block {
+    margin: var(--ast-global-spacing, 2em) 0;
+}
+
+.ast-separate-container .chcb-code-block {
+    margin-left: -20px;
+    margin-right: -20px;
+    border-radius: 0;
+}
+
+@media (min-width: 769px) {
+    .ast-separate-container .chcb-code-block {
+        margin-left: 0;
+        margin-right: 0;
+        border-radius: var(--chcb-border-radius, 12px);
+    }
+}
+
+.ast-page-builder-template .chcb-code-block {
+    margin: 2em auto;
+}
+
+/* ===========================
+   GeneratePress Theme
+   =========================== */
+.generate-columns-container .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+.one-container .chcb-code-block {
+    margin-left: -40px;
+    margin-right: -40px;
+    border-radius: 0;
+}
+
+@media (min-width: 769px) {
+    .one-container .chcb-code-block {
+        margin-left: 0;
+        margin-right: 0;
+        border-radius: var(--chcb-border-radius, 12px);
+    }
+}
+
+.separate-containers .chcb-code-block {
+    margin: 2em 0;
+}
+
+/* ===========================
+   OceanWP Theme
+   =========================== */
+#main .oceanwp-theme .chcb-code-block,
+.ocean-main .chcb-code-block {
+    margin: 30px 0;
+}
+
+.oceanwp-theme.single-post .chcb-code-block {
+    margin: 40px -30px;
+    border-radius: 0;
+}
+
+@media (min-width: 960px) {
+    .oceanwp-theme.single-post .chcb-code-block {
+        margin: 40px 0;
+        border-radius: var(--chcb-border-radius, 12px);
+    }
+}
+
+/* Dark mode support for OceanWP */
+.oceanwp-theme.dark-style .chcb-code-block {
+    background: #1a1a1a;
+}
+
+/* ===========================
+   Neve Theme
+   =========================== */
+.nv-content-wrap .chcb-code-block {
+    margin: var(--spacing, 2em) 0;
+}
+
+.neve-main .chcb-code-block pre {
+    font-size: var(--bodyFontSize, 14px);
+}
+
+.neve.dark-mode .chcb-code-block {
+    background: var(--nv-dark-bg, #1e1e1e);
+}
+
+/* ===========================
+   Blocksy Theme
+   =========================== */
+.ct-container .chcb-code-block {
+    margin: var(--spacing, 2em) 0;
+}
+
+[data-scheme="dark"] .chcb-code-block {
+    background: var(--paletteColor1, #1e1e1e);
+}
+
+/* ===========================
+   Kadence Theme
+   =========================== */
+.kadence-theme .chcb-code-block {
+    margin: var(--global-kb-spacing-md, 2em) 0;
+}
+
+.wp-site-blocks .kadence-theme .chcb-code-block {
+    max-width: var(--wp--style--global--content-size, 100%);
+}
+
+/* ===========================
+   Avada Theme
+   =========================== */
+.fusion-body .chcb-code-block {
+    margin: 30px 0;
+}
+
+.fusion-builder-row .chcb-code-block {
+    margin: 20px 0;
+}
+
+.fusion-dark-mode .chcb-code-block {
+    background: var(--awb-color1, #1e1e1e);
+}
+
+/* ===========================
+   Divi Theme
+   =========================== */
+.et_pb_section .chcb-code-block {
+    margin: 30px 0;
+}
+
+.et_pb_row .chcb-code-block {
+    width: 100%;
+}
+
+.et-db #et-boc .et-l .chcb-code-block {
+    margin: 2em 0;
+}
+
+/* ===========================
+   Elementor Page Builder
+   =========================== */
+.elementor-widget-container .chcb-code-block {
+    margin: 20px 0;
+    width: 100%;
+}
+
+.elementor-widget-text-editor .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+/* Full width in Elementor */
+.elementor-section-stretched .chcb-code-block {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+/* ===========================
+   Gutenberg Block Editor
+   =========================== */
+.wp-block .chcb-code-block {
+    margin-top: var(--wp--style--block-gap, 2em);
+    margin-bottom: var(--wp--style--block-gap, 2em);
+}
+
+.wp-block-group .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+/* Wide alignment */
+.alignwide .chcb-code-block {
+    max-width: var(--wp--style--global--wide-size, 100%);
+}
+
+/* Full alignment */
+.alignfull .chcb-code-block {
+    margin-left: calc(-50vw + 50%);
+    margin-right: calc(-50vw + 50%);
+    border-radius: 0;
+    max-width: 100vw;
+}
+
+/* ===========================
+   WooCommerce Compatibility
+   =========================== */
+.woocommerce .chcb-code-block {
+    margin: 2em 0;
+    clear: both;
+}
+
+.woocommerce-tabs .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+/* ===========================
+   bbPress Compatibility
+   =========================== */
+#bbpress-forums .chcb-code-block {
+    margin: 1em 0;
+    max-width: 100%;
+}
+
+.bbp-reply-content .chcb-code-block {
+    margin: 1em 0;
+}
+
+/* ===========================
+   BuddyPress Compatibility
+   =========================== */
+.buddypress .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+.activity-content .chcb-code-block {
+    margin: 1em 0;
+}
+
+/* ===========================
+   Common Mobile Adjustments
+   =========================== */
+@media (max-width: 768px) {
+    /* Remove negative margins on mobile for contained themes */
+    .ast-separate-container .chcb-code-block,
+    .one-container .chcb-code-block,
+    .oceanwp-theme.single-post .chcb-code-block {
+        margin-left: -15px;
+        margin-right: -15px;
+        border-radius: 0;
+    }
+    
+    /* Reduce spacing on mobile */
+    .chcb-code-block {
+        margin-top: 1.5em;
+        margin-bottom: 1.5em;
+    }
+}
+
+/* ===========================
+   RTL Support
+   =========================== */
+.rtl .chcb-code-block {
+    direction: ltr;
+    text-align: left;
+}
+
+.rtl .chcb-header {
+    direction: rtl;
+}
+
+.rtl .chcb-controls {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+/* ===========================
+   AMP Compatibility
+   =========================== */
+.amp-wp-article .chcb-code-block {
+    margin: 1.5em 0;
+}
+
+.amp-wp-article .chcb-copy-btn,
+.amp-wp-article .chcb-fullscreen-btn {
+    display: none;
+}

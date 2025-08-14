@@ -1,5 +1,7 @@
 # CLAUDE.md - AI News Parser Single Pipeline + External Prompts System
 
+## 🔴 ВАЖНО: Общаться только на русском языке!
+
 ## ⚠️ КРИТИЧЕСКИ ВАЖНО: Запуск Pipeline
 - **Pipeline запускается ТОЛЬКО из дашборда** через кнопку "Start Pipeline"
 - **НИКОГДА не запускать напрямую** через терминал - защитные системы не будут работать
@@ -8,16 +10,16 @@
 
 ## 🚀 Project: AI News Parser Single Pipeline
 - **Purpose**: Streamlined AI news collection with external prompts system for easy customization
-- **Stack**: Python, SQLite, Firecrawl Scrape API, DeepSeek AI, OpenAI API, FastAPI monitoring
+- **Stack**: Python, Supabase, Firecrawl Scrape API, DeepSeek AI, OpenAI API, FastAPI monitoring
 - **Location**: Desktop/AI DEV/ainews-clean/
-- **Version**: 2.4 - Fixed protection systems for dashboard
-- **Status**: Production ready with full debugging
-- **Last Update**: August 10, 2025 - Fixed dashboard compatibility for all protection systems
+- **Version**: 3.0 - Full Supabase Migration + Duplicate Protection
+- **Status**: Production ready with cloud database
+- **Last Update**: August 14, 2025 - Full Supabase migration, SQLite removed
 
 ## 📋 System Overview
 Single pipeline implementation with external prompts:
 - **1 run = 1 article** - Core principle
-- **30 news sources** - RSS feeds + Google Alerts
+- **29 news sources** - RSS feeds + Google Alerts
 - **Simple FIFO queue** - No priorities
 - **5 phases** - RSS → Parse → Media → Translate → Publish
 - **External prompts** - Easy editing without code changes
@@ -32,8 +34,11 @@ source venv/bin/activate
 # Phase 1: Find new articles
 python core/main.py --rss-discover
 
-# Phases 2-5: Process ONE article through all phases
+# Phases 2-5: Process ONE article through all phases  
 python core/main.py --single-pipeline
+
+# Continuous mode: Process ALL pending articles
+python core/main.py --continuous-pipeline
 
 # Change Tracking Module
 python core/main.py --change-tracking --scan --limit 5     # Scan 5 sources for changes
@@ -122,12 +127,37 @@ pending → parsed → published
        failed
 ```
 
+## 🗄️ Supabase Integration (Основная БД)
+
+### Connection Status  
+- **URL**: `https://mtguynupyltlqiwhmilc.supabase.co`
+- **Status**: ✅ PRODUCTION - основная база данных системы
+- **Доступ**: Full access через MCP server + Python client
+- **SQLite**: ❌ ПОЛНОСТЬЮ УДАЛЕН - миграция завершена
+
+### Database Protection
+- **UNIQUE Constraint**: ✅ `articles_url_unique` - защита от дублей на URL
+- **Indexes**: ✅ `idx_articles_url` - быстрый поиск по URL
+- **Duplicate Detection**: ✅ Методы проверяют `is_deleted` статус
+- **Error Handling**: ✅ Graceful обработка constraint violations
+
+### Available Components
+- **Client Module**: `services/supabase_client.py` - основной клиент с защитой от дублей
+- **Factory**: `core/database_factory.py` - автоматическое подключение к Supabase
+- **Config**: `core/db_config.py` - конфигурация подключения
+- **MCP Server**: ✅ Подключен через `claude mcp add supabase`
+
+### Current Statistics
+- **782 статьи** - все с уникальными URL
+- **0 дублей** - система полностью защищена
+- **Sources**: Очищены от дублирующихся feed_url
+
 ## 🧪 Testing
 
 **IMPORTANT**: Always use `http://example.com/` for testing:
 
-```python
-# Add test article to DB
+```sql
+-- Add test article to Supabase
 INSERT INTO articles (
     article_id, source_id, url, title, 
     content_status, media_status
@@ -135,7 +165,7 @@ INSERT INTO articles (
     'test_001', 'test_source', 
     'http://example.com/test-article',
     'Test Article', 'pending', 'pending'
-)
+);
 ```
 
 ## 🤝 Agent System
@@ -203,6 +233,10 @@ OPENAI_API_KEY=...
 WORDPRESS_API_URL=https://ailynx.ru/wp-json/wp/v2
 WORDPRESS_USERNAME=...
 WORDPRESS_APP_PASSWORD=...
+SUPABASE_URL=https://mtguynupyltlqiwhmilc.supabase.co
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_KEY=...
+SUPABASE_PROJECT_REF=mtguynupyltlqiwhmilc
 ```
 
 ## 🔍 Диагностика зависаний
@@ -354,34 +388,53 @@ curl "https://ailynx.ru/wp-json/wp/v2/tags"
 curl "https://ailynx.ru/wp-json/wp/v2/categories"
 ```
 
-## 🔍 Change Tracking Module
+## 🔍 Change Tracking System
 
-**Назначение**: Отслеживание изменений на веб-страницах источников новостей
+**Назначение**: Отслеживание изменений на веб-страницах AI источников с извлечением URL статей
 
 ### Ключевые возможности
-- 📊 **Отслеживание 45 источников** через Firecrawl changeTracking API
-- 🔍 **Автоматическое обнаружение** новых страниц и изменений
-- 📈 **Изолированная БД** - таблица `tracked_articles`
-- 🚀 **Батч-обработка** для эффективности
-- 📋 **Детальная статистика** и отчеты
+- 📊 **47 источников** с 100% работоспособностью
+- 🔍 **985+ извлеченных URL** с автоматической фильтрацией
+- 📈 **Изолированная БД** - таблица `tracked_articles` (не влияет на основную систему)
+- 🚀 **Batch обработка** с поддержкой escape-sequences
+- 📋 **Детальная статистика** по источникам и изменениям
+- ⚡ **Специальные фильтры** - URL patterns и escape processing для каждого источника
 
 ### Команды модуля
 ```bash
-# Сканировать источники (рекомендуемые настройки)
-python core/main.py --change-tracking --scan --limit 5 --batch-size 3
+# Сканирование источников
+python core/main.py --change-tracking --scan --limit 5
+python core/main.py --change-tracking --scan --batch-size 3
 
-# Просмотр статистики
-python core/main.py --change-tracking --stats
+# Статистика и мониторинг  
+python core/main.py --change-tracking --tracking-stats
+python core/main.py --change-tracking --show-new-urls --limit 20
 
-# Экспорт изменений (TODO: пока не реализован)
-python core/main.py --change-tracking --export
+# Экспорт данных (планируется)
+python core/main.py --change-tracking --export-changes
 ```
 
 ### Статусы изменений
 - **🆕 new** - Новая страница (первое сканирование)
-- **🔄 changed** - Обнаружены изменения в контенте  
+- **🔄 changed** - Обнаружены изменения в контенте с новыми URL
 - **⚪ unchanged** - Без изменений
+
+### Архитектура системы
+- **URL Extraction**: Продвинутая система извлечения ссылок с поддержкой escape-sequences (`\\\\\\\\`)
+- **Source Mapping**: Маппинг 47 источников из `data/tracking_sources.json`
+- **Domain Patterns**: Индивидуальные паттерны фильтрации для каждого источника
+- **Database Schema**: Изолированная таблица `tracked_articles` с полной трассировкой изменений
+
+### Документация Change Tracking
+- **[docs/tracking-system.md](docs/tracking-system.md)** - Центральная документация системы
+- **[docs/FLOW.md](docs/FLOW.md)** - Детальный процесс работы (CT Phase 1-3)
+- **[docs/change_tracking/](docs/change_tracking/)** - Детальная документация компонентов:
+  - `url-patterns.md` - Система фильтрации URL
+  - `source-mapping.md` - Конфигурация источников
+  - `escape-processing.md` - Обработка escape-sequences
+  - `database-schema.md` - Структура базы данных
+  - `api-commands.md` - CLI команды и API
 
 ---
 
-**Updated**: August 8, 2025 | **Version**: 2.3 | **Single Pipeline + External Prompts + Fixed Media Processing**
+**Updated**: August 14, 2025 | **Version**: 3.0 | **Full Supabase Migration + Duplicate Protection**

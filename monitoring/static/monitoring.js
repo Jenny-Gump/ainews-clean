@@ -1,12 +1,17 @@
 // AI News Control Center - Complete JavaScript Integration
-// Cleaned version - Control, Articles and Memory functionality only
+// Enhanced version with Supabase integration and real-time capabilities
 
 // =======================
 // CORE CONFIGURATION
 // =======================
 
-const API_BASE_URL = 'http://localhost:8001/api/monitoring';
+const API_BASE_URL = 'http://localhost:8001/api';
 const WS_URL = 'ws://localhost:8001/ws';
+
+// Data source configuration - Supabase only
+const DATA_SOURCE = {
+    SUPABASE: 'supabase'
+};
 
 // Global state management
 let globalState = {
@@ -16,6 +21,13 @@ let globalState = {
     maxReconnectAttempts: 5,
     isConnected: false,
     refreshInterval: null,
+    dataSource: DATA_SOURCE.SUPABASE,
+    supabaseChannels: [],
+    lastUpdate: {
+        control: 0,
+        articles: 0,
+        memory: 0
+    },
     charts: {
         resourceChart: null,
         processChart: null
@@ -39,11 +51,27 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeDashboard() {
+    // Initialize Supabase client first
+    const supabaseReady = window.SupabaseClient && window.SupabaseClient.initialize();
+    
+    // Initialize Supabase as the only data source
+    if (supabaseReady) {
+        globalState.dataSource = DATA_SOURCE.SUPABASE;
+        console.log('Using Supabase as data source');
+        setupSupabaseSubscriptions();
+    } else {
+        console.error('Supabase initialization failed - system requires Supabase');
+        showNotification('Supabase connection required', 'error');
+    }
+    
     // Initialize WebSocket connection
     initializeWebSocket();
     
     // Set up event listeners
     setupEventListeners();
+    
+    // Set up data source indicator
+    updateDataSourceIndicator();
     
     // Load initial data
     switchTab('control');
@@ -156,6 +184,132 @@ function handleWebSocketMessage(data) {
 }
 
 // =======================
+// SUPABASE INTEGRATION
+// =======================
+
+function setupSupabaseSubscriptions() {
+    if (!window.SupabaseClient) {
+        console.warn('SupabaseClient not available');
+        return;
+    }
+
+    // Subscribe to articles table changes
+    const articlesChannel = window.SupabaseClient.subscribe(
+        'articles',
+        (payload) => {
+            console.log('Articles update:', payload);
+            handleSupabaseArticleUpdate(payload);
+        }
+    );
+    
+    if (articlesChannel) {
+        globalState.supabaseChannels.push(articlesChannel);
+    }
+
+    // Subscribe to system metrics if available
+    const metricsChannel = window.SupabaseClient.subscribe(
+        'system_metrics',
+        (payload) => {
+            console.log('System metrics update:', payload);
+            handleSupabaseMetricsUpdate(payload);
+        }
+    );
+    
+    if (metricsChannel) {
+        globalState.supabaseChannels.push(metricsChannel);
+    }
+
+    console.log('Supabase real-time subscriptions established');
+}
+
+function handleSupabaseArticleUpdate(payload) {
+    if (globalState.currentTab !== 'articles') return;
+    
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+    // Debounce updates to prevent excessive re-rendering
+    const debouncedUpdate = window.SupabaseClient.utils.debounce(() => {
+        loadArticlesFromSupabase();
+    }, 500);
+    
+    debouncedUpdate();
+    
+    // Show real-time notification
+    if (eventType === 'INSERT') {
+        showNotification(`New article: ${newRecord.title}`, 'success');
+    } else if (eventType === 'UPDATE') {
+        showNotification(`Article updated: ${newRecord.title}`, 'info');
+    }
+}
+
+function handleSupabaseMetricsUpdate(payload) {
+    if (globalState.currentTab !== 'memory') return;
+    
+    // Update memory data from real-time metrics
+    const debouncedUpdate = window.SupabaseClient.utils.debounce(() => {
+        loadMemoryFromSupabase();
+    }, 1000);
+    
+    debouncedUpdate();
+}
+
+function cleanupSupabaseSubscriptions() {
+    globalState.supabaseChannels.forEach(channel => {
+        if (channel) {
+            window.SupabaseClient.unsubscribe(channel);
+        }
+    });
+    globalState.supabaseChannels = [];
+    console.log('Supabase subscriptions cleaned up');
+}
+
+// Data source switching with fallback
+async function getDataWithFallback(dataFunction, fallbackFunction, cacheKey = null) {
+    // Try cache first if enabled
+    if (cacheKey && window.SupabaseClient) {
+        const cached = window.SupabaseClient.cache.get(cacheKey);
+        if (cached) {
+            console.log(`Using cached data for ${cacheKey}`);
+            return cached;
+        }
+    }
+    
+    // Try Supabase first if available
+    if (globalState.dataSource === DATA_SOURCE.SUPABASE || globalState.dataSource === DATA_SOURCE.AUTO) {
+        try {
+            const result = await dataFunction();
+            
+            // Cache successful results
+            if (cacheKey && window.SupabaseClient) {
+                window.SupabaseClient.cache.set(cacheKey, result);
+            }
+            
+            return result;
+        } catch (error) {
+            console.warn('Supabase query failed, falling back to API:', error);
+            
+            // This section is removed since we use Supabase only
+        }
+    }
+    
+    // Fallback to API
+    return await fallbackFunction();
+}
+
+function updateDataSourceIndicator() {
+    const indicator = document.getElementById('data-source-indicator');
+    if (!indicator) return;
+    
+    const icon = indicator.querySelector('.source-icon');
+    const text = indicator.querySelector('.source-text');
+    
+    // Always show Supabase (only data source)
+    icon.className = 'source-icon ri-database-2-line text-green-500';
+    text.textContent = 'Supabase Connected ✅';
+    indicator.title = 'Using Supabase with real-time updates';
+}
+
+// =======================
 // TAB MANAGEMENT
 // =======================
 
@@ -217,13 +371,41 @@ function switchTab(tabName) {
 function loadTabData(tabName) {
     switch(tabName) {
         case 'control':
-            loadControlData();
+            loadControlDataWithSupabase().then(data => {
+                if (data) {
+                    updateProcessStatus(data.status);
+                    updateControlInterface(data);
+                }
+            }).catch(error => {
+                console.error('Failed to load control data:', error);
+                showNotification('Failed to load control data', 'error');
+            });
             break;
         case 'articles':
-            loadArticlesData();
+            loadArticlesFromSupabase().then(response => {
+                if (response) {
+                    globalState.currentData.articles = response;
+                    renderArticlesTable(response.articles || []);
+                    updatePagination(response.pagination || {});
+                }
+            }).catch(error => {
+                console.error('Failed to load articles:', error);
+                showNotification('Failed to load articles', 'error');
+            });
             break;
         case 'memory':
-            loadMemoryData();
+            loadMemoryFromSupabase().then(data => {
+                if (data) {
+                    globalState.currentData.systemResources = data.resources;
+                    globalState.currentData.memory = data.memory;
+                    updateSystemResourcesDisplay(data.resources);
+                    renderProcessTable(data.memory.processes || []);
+                    initializeResourceCharts();
+                }
+            }).catch(error => {
+                console.error('Failed to load memory data:', error);
+                showNotification('Failed to load memory data', 'error');
+            });
             break;
     }
 }
@@ -265,6 +447,29 @@ async function loadControlData() {
         console.error('Error loading control data:', error);
         showNotification('Failed to load control data', 'error');
     }
+}
+
+// Enhanced control data loading with Supabase support
+async function loadControlDataWithSupabase() {
+    return getDataWithFallback(
+        async () => {
+            // Try Supabase for pipeline status
+            const pipelineStatus = await window.SupabaseClient.monitoring.getPipelineStatus();
+            return {
+                status: pipelineStatus,
+                capabilities: {
+                    can_start: !pipelineStatus.is_running,
+                    can_stop: pipelineStatus.is_running,
+                    can_pause: pipelineStatus.is_running && !pipelineStatus.is_paused
+                }
+            };
+        },
+        async () => {
+            // Fallback to API
+            return await makeAPICall('/control/status');
+        },
+        'control_status'
+    );
 }
 
 async function startParser() {
@@ -383,6 +588,120 @@ function updateProcessStatus(status) {
     
     if (processingRateElement) {
         processingRateElement.textContent = status.processing_rate || '-';
+    }
+    
+    // Update continuous mode metrics
+    updateContinuousMetrics(status);
+}
+
+function updateContinuousMetrics(status) {
+    // Queue count (articles pending processing)
+    const queueElement = document.getElementById('queue-count');
+    if (queueElement) {
+        queueElement.textContent = status.queue_count || status.articles_pending || '0';
+    }
+    
+    // Processing speed (articles per minute)
+    const speedElement = document.getElementById('processing-speed');
+    if (speedElement) {
+        const rate = status.processing_rate_per_minute || status.processing_rate || '0';
+        speedElement.textContent = rate;
+    }
+    
+    // Last article processed time
+    const lastArticleElement = document.getElementById('last-article-time');
+    if (lastArticleElement) {
+        if (status.last_article_time) {
+            const lastTime = new Date(status.last_article_time);
+            const now = new Date();
+            const diffMinutes = Math.floor((now - lastTime) / 60000);
+            
+            if (diffMinutes < 1) {
+                lastArticleElement.textContent = 'Just now';
+            } else if (diffMinutes < 60) {
+                lastArticleElement.textContent = `${diffMinutes}m ago`;
+            } else {
+                lastArticleElement.textContent = lastTime.toLocaleTimeString();
+            }
+        } else {
+            lastArticleElement.textContent = 'Never';
+        }
+    }
+    
+    // Pipeline uptime
+    const uptimeElement = document.getElementById('pipeline-uptime');
+    if (uptimeElement) {
+        if (status.continuous_pipeline === 'running' && status.start_time) {
+            const startTime = new Date(status.start_time);
+            const now = new Date();
+            const diffMs = now - startTime;
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffMinutes = Math.floor((diffMs % 3600000) / 60000);
+            
+            if (diffHours > 0) {
+                uptimeElement.textContent = `${diffHours}h ${diffMinutes}m`;
+            } else {
+                uptimeElement.textContent = `${diffMinutes}m`;
+            }
+        } else {
+            uptimeElement.textContent = 'Not running';
+        }
+    }
+}
+
+async function updateContinuousMetricsFromSupabase() {
+    if (!window.SupabaseClient) return;
+    
+    try {
+        // Get queue count (pending articles)
+        const { count: queueCount } = await window.SupabaseClient.client
+            .from('articles')
+            .select('*', { count: 'exact', head: true })
+            .eq('content_status', 'pending');
+        
+        const queueElement = document.getElementById('queue-count');
+        if (queueElement) {
+            queueElement.textContent = queueCount || '0';
+        }
+        
+        // Get recent articles for processing speed calculation
+        const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+        const { count: recentCount } = await window.SupabaseClient.client
+            .from('articles')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', oneMinuteAgo)
+            .neq('content_status', 'pending');
+        
+        const speedElement = document.getElementById('processing-speed');
+        if (speedElement) {
+            speedElement.textContent = recentCount || '0';
+        }
+        
+        // Get last processed article
+        const { data: lastArticle } = await window.SupabaseClient.client
+            .from('articles')
+            .select('created_at')
+            .neq('content_status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1);
+        
+        const lastArticleElement = document.getElementById('last-article-time');
+        if (lastArticleElement && lastArticle && lastArticle.length > 0) {
+            const lastTime = new Date(lastArticle[0].created_at);
+            const now = new Date();
+            const diffMinutes = Math.floor((now - lastTime) / 60000);
+            
+            if (diffMinutes < 1) {
+                lastArticleElement.textContent = 'Just now';
+            } else if (diffMinutes < 60) {
+                lastArticleElement.textContent = `${diffMinutes}m ago`;
+            } else {
+                lastArticleElement.textContent = lastTime.toLocaleTimeString();
+            }
+        }
+        
+    } catch (error) {
+        console.warn('Failed to update continuous metrics from Supabase:', error);
     }
 }
 
@@ -570,6 +889,68 @@ async function loadArticles(page = 1) {
         document.getElementById('articles-table-body').innerHTML = 
             '<tr><td colspan="6" class="px-4 py-8 text-center text-sm text-red-500">Error loading articles</td></tr>';
     }
+}
+
+// Enhanced articles loading with Supabase support
+async function loadArticlesFromSupabase(page = 1) {
+    const searchTerm = document.getElementById('article-search')?.value || '';
+    const sourceFilter = document.getElementById('source-filter')?.value || '';
+    const dateFilter = document.getElementById('date-filter')?.value || '';
+    
+    return getDataWithFallback(
+        async () => {
+            // Try Supabase
+            const options = {
+                page,
+                pageSize: 50,
+                search: searchTerm || null,
+                source: sourceFilter || null,
+                sortBy: 'created_at',
+                sortOrder: 'desc'
+            };
+            
+            // Add date filter if specified
+            if (dateFilter) {
+                // Convert date filter to appropriate format for Supabase
+                const dateOptions = {
+                    'today': new Date().toISOString().split('T')[0],
+                    'week': new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                    'month': new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                };
+                
+                if (dateOptions[dateFilter]) {
+                    options.dateFrom = dateOptions[dateFilter];
+                }
+            }
+            
+            const result = await window.SupabaseClient.articles.getArticles(options);
+            
+            // Format response to match API structure
+            return {
+                articles: result.data,
+                pagination: result.pagination
+            };
+        },
+        async () => {
+            // Fallback to existing API logic
+            const params = new URLSearchParams({
+                page: page,
+                limit: 50,
+                search: searchTerm,
+                source_filter: sourceFilter,
+                date_filter: dateFilter,
+                sort_by: 'created_at',
+                sort_order: 'desc'
+            });
+            
+            const articlesResponse = await fetch(`http://localhost:8001/api/articles?${params}`);
+            if (!articlesResponse.ok) {
+                throw new Error(`HTTP ${articlesResponse.status}: ${articlesResponse.statusText}`);
+            }
+            return await articlesResponse.json();
+        },
+        `articles_${page}_${searchTerm}_${sourceFilter}_${dateFilter}`
+    );
 }
 
 function renderArticlesTable(articles) {
@@ -872,6 +1253,46 @@ async function loadMemoryData() {
         console.error('Error loading memory data:', error);
         showNotification('Failed to load memory data', 'error');
     }
+}
+
+// Enhanced memory data loading with Supabase support
+async function loadMemoryFromSupabase() {
+    return getDataWithFallback(
+        async () => {
+            // Try Supabase for system metrics
+            const timeRange = globalState.resourceTimeRange || '1h';
+            const systemMetrics = await window.SupabaseClient.monitoring.getSystemMetrics(timeRange);
+            
+            // Format system metrics for display
+            const resourcesData = {
+                history: systemMetrics.map(metric => ({
+                    timestamp: metric.timestamp,
+                    cpu_percent: metric.cpu_percent,
+                    memory_percent: metric.memory_percent,
+                    disk_usage: metric.disk_usage
+                }))
+            };
+            
+            // For processes, we still need to use API since it's real-time system info
+            const memoryResponse = await makeAPICall('/memory');
+            
+            return {
+                resources: resourcesData,
+                memory: memoryResponse
+            };
+        },
+        async () => {
+            // Fallback to API
+            const resourcesResponse = await makeAPICall('/system/resources');
+            const memoryResponse = await makeAPICall('/memory');
+            
+            return {
+                resources: resourcesResponse,
+                memory: memoryResponse
+            };
+        },
+        `memory_${globalState.resourceTimeRange}`
+    );
 }
 
 function updateMemoryOverview(memoryData) {
@@ -1408,19 +1829,23 @@ function setupEventListeners() {
 }
 
 function startRefreshCycle() {
-    // Auto-refresh every 30 seconds
+    // Auto-refresh every 2 seconds for continuous mode
     if (globalState.refreshInterval) {
         clearInterval(globalState.refreshInterval);
     }
     
     globalState.refreshInterval = setInterval(() => {
         if (globalState.currentTab === 'control') {
-            loadControlData();
+            loadTabData('control');
         } else if (globalState.currentTab === 'memory') {
-            loadMemoryData();
+            loadTabData('memory');
+        } else if (globalState.currentTab === 'articles') {
+            loadTabData('articles'); // Continuous mode needs real-time article updates
         }
-        // Articles tab doesn't auto-refresh to avoid interrupting user actions
-    }, 30000);
+        
+        // Update continuous metrics from Supabase
+        updateContinuousMetricsFromSupabase();
+    }, 2000); // 2 seconds for continuous monitoring
 }
 
 // =======================

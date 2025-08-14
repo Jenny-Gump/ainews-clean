@@ -36,7 +36,7 @@ python core/main.py --stats
 ### 🔧 Архитектура
 - **Единый пайплайн**: 1 запуск = 1 статья
 - **5 фаз обработки**: RSS → Парсинг → Медиа → Перевод → Публикация
-- **30 источников**: RSS и Google Alerts
+- **29 источников**: RSS и Google Alerts
 - **Простая очередь FIFO**: без приоритетов
 - **Обработка статей**: Single Pipeline или Continuous mode
 
@@ -101,11 +101,17 @@ python core/main.py --continuous-pipeline --delay-between 10
 - **Graceful shutdown**: Ctrl+C завершает после текущей статьи
 - **Статистика**: подробный отчет по завершении
 
-### Change Tracking
+### Change Tracking (47 источников)
 ```bash
 python core/main.py --change-tracking --scan --limit 5
-python core/main.py --change-tracking --stats
+python core/main.py --change-tracking --tracking-stats
+python core/main.py --change-tracking --show-new-urls
 ```
+**Назначение**: Отслеживание изменений на веб-страницах AI-источников
+- 📊 **47 отслеживаемых источников** (100% рабочих)
+- 🔍 **985+ извлеченных URL** с автоматической фильтрацией
+- 📈 **Изолированная база данных** - таблица `tracked_articles`
+- 🚀 **Batch обработка** с escape-sequences поддержкой
 
 ### Информация
 ```bash
@@ -120,9 +126,11 @@ ainews-clean/
 ├── core/                          # Ядро системы
 │   ├── main.py                   # Точка входа
 │   ├── single_pipeline.py        # Основная логика пайплайна
-│   ├── database.py               # Операции с БД
+│   ├── database_factory.py       # Фабрика БД (Supabase)
+│   ├── db_config.py              # Конфигурация БД
 │   └── config.py                 # Конфигурация
 ├── services/                      # Сервисы фаз
+│   ├── supabase_client.py        # Supabase БД операции
 │   ├── content_parser.py         # Firecrawl + DeepSeek
 │   ├── wordpress_publisher.py    # Перевод + публикация  
 │   ├── prompts_loader.py         # 🆕 Загрузчик промптов
@@ -133,7 +141,7 @@ ainews-clean/
 │   ├── tag_generator.txt         # Генерация тегов
 │   └── image_metadata.txt        # Метаданные изображений
 ├── monitoring/                    # Веб-дашборд
-├── change_tracking/              # Отслеживание изменений
+├── change_tracking/              # Change Tracking модуль (47 источников)
 ├── data/                         # Базы данных
 └── agents/                       # Контексты агентов
 ```
@@ -176,14 +184,15 @@ prompt = load_prompt('content_cleaner',
 )
 ```
 
-## 📊 База данных
+## 📊 База данных (Supabase)
 
 ### Основные таблицы
-- **articles** - Статьи с потоком статусов
+- **articles** - Статьи с потоком статусов (UNIQUE constraint на URL)
 - **media_files** - Медиафайлы с реальными URL
 - **wordpress_articles** - Переведенный контент с тегами  
-- **sources** - Источники новостей (75 источников: 30 RSS + 45 tracking)
-- **tracked_articles** - Отслеживание изменений (изолированный модуль)
+- **sources** - Источники новостей (76 источников: 29 RSS + 47 tracking)
+- **tracked_articles** - Change Tracking отслеживание (изолированный модуль)
+- **global_config** - Глобальная конфигурация системы
 
 ### 📡 Источники новостей
 Подробная документация по всем источникам: [docs/SOURCES.md](docs/SOURCES.md)
@@ -203,6 +212,12 @@ pending → parsed → published
 FIRECRAWL_API_KEY=fc-...
 DEEPSEEK_API_KEY=sk-...
 OPENAI_API_KEY=sk-proj-...
+
+# Supabase (основная БД)
+SUPABASE_URL=https://mtguynupyltlqiwhmilc.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_KEY=eyJ...
+SUPABASE_PROJECT_REF=mtguynupyltlqiwhmilc
 
 # WordPress  
 WORDPRESS_API_URL=https://ailynx.ru/wp-json/wp/v2
@@ -232,8 +247,8 @@ cd monitoring && ./start_monitoring.sh
 ## 🧪 Тестирование
 
 ### Добавление тестовой статьи
-```bash
-# В SQLite
+```sql
+-- В Supabase
 INSERT INTO articles (
     article_id, source_id, url, title, 
     content_status, media_status
@@ -246,7 +261,31 @@ INSERT INTO articles (
 
 **ВАЖНО**: Всегда используйте `http://example.com/` для тестирования!
 
-## 🆕 Последние обновления (8 августа 2025)
+## 🆕 Последние обновления (14 августа 2025)
+
+### ✅ ПОЛНАЯ МИГРАЦИЯ НА SUPABASE + РЕШЕНИЕ ПРОБЛЕМЫ ДУБЛЕЙ
+
+#### 🗄️ Supabase миграция
+- ✅ **Полная миграция**: SQLite полностью удален, система работает на Supabase
+- ✅ **MCP интеграция**: Полное подключение через MCP сервер
+- ✅ **Производительность**: Облачная БД с автоскейлингом
+- ✅ **Real-time**: Подписки и live-обновления
+
+#### 🚫 ПРОБЛЕМА ДУБЛЕЙ РЕШЕНА
+- ✅ **UNIQUE constraint**: Добавлено ограничение `articles_url_unique` на поле URL
+- ✅ **Дубли удалены**: Очищены все существующие дубли (1 дубль найден и удален)
+- ✅ **Методы исправлены**: `article_exists()` и `url_exists()` теперь исключают deleted статьи
+- ✅ **Источники объединены**: Дублирующиеся источники `hugging_face`/`huggingface` объединены
+- ✅ **Защита БД**: 782 статьи, 782 уникальных URL, 0 дублей
+- ✅ **Error handling**: Graceful обработка UNIQUE constraint violations
+
+#### 🔧 Архитектурные изменения
+- ✅ **database_factory.py**: Автоматический выбор Supabase адаптера
+- ✅ **supabase_client.py**: Полная замена SQLite функциональности
+- ✅ **Конфигурация**: Переменные SUPABASE_* в .env файле
+- ✅ **Мониторинг**: Адаптирован для работы с Supabase
+
+## 🆕 Обновления (8 августа 2025)
 
 ### ✅ Continuous Pipeline Mode (НОВОЕ)
 - ✅ **Автоматическая обработка**: Обрабатывает ВСЕ pending статьи в цикле
@@ -370,19 +409,12 @@ python core/main.py --stats  # Проверить статистику
 
 Для вопросов и предложений см. документацию в папке `docs/` или контексты агентов в `agents/`.
 
-## 🔧 Последние исправления (9 августа 2025)
-
-### ✅ Критическое исправление зависаний системы
-- **Проблема**: Система зависала после обработки 5-7 статей из-за накопления блокировок
-- **Причина**: `release_article()` не очищал `processing_session_id`, создавая "зомби-блокировки"
-- **Исправления**: 
-  - ✅ Правильная очистка всех полей `processing_*` после обработки статьи
-  - ✅ Замена опасной рекурсии в `get_next_article()` на безопасный цикл с лимитом
-  - ✅ Защита от множественных блокировок: одна сессия = одна активная статья
-  - ✅ Уменьшение таймаутов с 30 до 10 минут для быстрой очистки зависших сессий
-  - ✅ Heartbeat обновляет ВСЕ блокировки сессии, а не только текущую
-- **Результат**: Стабильная работа в continuous режиме без зависаний
+### ✅ Критические правила работы:
+1. **Pipeline запускается ТОЛЬКО из дашборда** - НИКОГДА не из терминала
+2. **ONE article per run** - Never batch process  
+3. **FIFO queue only** - No priorities
+4. **Supabase защищена от дублей** - UNIQUE constraint активен
 
 ---
 
-**Обновлено**: 11 августа 2025 | **Версия**: 2.6 | **Single Pipeline + External Prompts System**
+**Обновлено**: 14 августа 2025 | **Версия**: 3.0 | **Full Supabase Migration + Duplicate Protection**

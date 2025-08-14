@@ -16,7 +16,7 @@
 - **[DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)** - Полная схема всех таблиц БД
 
 ### 🔧 Настройка и конфигурация  
-- **[SOURCES.md](SOURCES.md)** - Список всех источников новостей (30 RSS + 45 tracking)
+- **[SOURCES.md](SOURCES.md)** - Список всех источников новостей (29 RSS + 47 tracking)
 - **[llm-models.md](llm-models.md)** - Документация по LLM моделям и промптам
 
 ### 📊 Специализированные модули

@@ -264,7 +264,7 @@ async def get_memory_history(
             cursor.execute("""
                 SELECT timestamp, memory_percent, memory_used_gb, memory_total_gb
                 FROM system_resources
-                WHERE timestamp >= ?
+                WHERE timestamp >= %s
                 ORDER BY timestamp ASC
             """, (cutoff_time.isoformat(),))
             

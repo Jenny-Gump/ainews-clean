@@ -66,9 +66,10 @@ class PipelineLogs {
             const response = await fetch('/api/pipeline/logs?limit=50');
             if (response.ok) {
                 const data = await response.json();
-                if (data.operations) {
-                    // Always update operations to show real-time changes
-                    this.operations = data.operations.slice(0, this.maxOperations);
+                if (data.logs || data.operations) {
+                    // Use logs field first, fallback to operations for compatibility
+                    const logs = data.logs || data.operations || [];
+                    this.operations = logs.slice(0, this.maxOperations);
                     this.renderOperations();
                 }
             } else {

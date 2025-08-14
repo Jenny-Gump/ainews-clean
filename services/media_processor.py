@@ -19,7 +19,7 @@ import base64
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from core.config import Config
 from app_logging import get_logger
 from PIL import Image
@@ -38,7 +38,7 @@ class ExtractMediaDownloaderPlaywright:
     
     def __init__(self):
         self.logger = get_logger('extract_system.media_downloader_playwright')
-        self.db = Database()
+        self.db = DatabaseConfig.get_database()
         self.config = Config()
         
         # Настройки скачивания (неагрессивные)
@@ -88,14 +88,12 @@ class ExtractMediaDownloaderPlaywright:
     def _get_article_info(self, article_id: str) -> Optional[Dict[str, Any]]:
         """Получает информацию о статье из БД"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT title, source_id FROM articles WHERE article_id = ?",
-                    (article_id,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    return {'title': row['title'], 'source_id': row['source_id']}
+            article = self.db.get_article(article_id)
+            if article:
+                return {
+                    'title': article.get('title', 'Unknown'), 
+                    'source_id': article.get('source_id', 'unknown')
+                }
         except Exception as e:
             self.logger.debug(f"Не удалось получить информацию о статье {article_id}: {e}")
         return None
@@ -153,7 +151,7 @@ class ExtractMediaDownloaderPlaywright:
             }
     
     
-    async def _download_single_file(self, media_info: Dict) -> Dict[str, Any]:
+    async def _download_single_file(self, media_info: Dict, file_index: int = 1, total_files: int = 1) -> Dict[str, Any]:
         """
         Скачивает один медиа-файл через wget с браузерными заголовками
         """
@@ -270,32 +268,24 @@ class ExtractMediaDownloaderPlaywright:
                 self.logger.info(f"✅ Изображение прошло валидацию: {width}x{height}px")
             
             # Обновляем БД с размерами изображения
-            with self.db.get_connection() as conn:
-                conn.execute("""
-                    UPDATE media_files SET
-                        file_path = ?,
-                        file_size = ?,
-                        type = ?,
-                        width = ?,
-                        height = ?,
-                        status = 'completed'
-                    WHERE media_id = ?
-                """, (
-                    str(file_path), 
-                    actual_size, 
-                    media_type,
-                    width,
-                    height,
-                    media_id
-                ))
+            self.db.update_media_file(
+                media_id=str(media_id),
+                file_path=str(file_path),
+                file_size=actual_size,
+                width=width,
+                height=height,
+                status='completed'
+            )
             
             processing_time = time.time() - start_time
             
             # Log successful media download
             from app_logging import log_operation
-            log_operation('media_download',
+            log_operation(f'✅ Загрузка медиа {file_index}/{total_files} - Успех ({round(actual_size / 1024 / 1024, 2)} MB)',
                 media_id=media_id,
                 article_id=article_id,
+                file_index=file_index,
+                total_files=total_files,
                 url=url[:100],  # Truncate URL
                 file_size_bytes=actual_size,
                 file_size_mb=round(actual_size / 1024 / 1024, 2),
@@ -340,9 +330,11 @@ class ExtractMediaDownloaderPlaywright:
             
             actual_size = locals().get('actual_size', 0) if 'file_path' in locals() and Path(file_path).exists() else 0
             
-            log_operation('media_download',
+            log_operation(f'❌ Ошибка скачивания медиа {file_index}/{total_files}: {error_type}',
                 media_id=media_id,
                 article_id=article_id,
+                file_index=file_index,
+                total_files=total_files,
                 url=url[:100],  # Truncate URL
                 file_size_bytes=actual_size,
                 duration_seconds=processing_time,
@@ -361,17 +353,12 @@ class ExtractMediaDownloaderPlaywright:
             
             # Обновляем БД со статусом failed
             try:
-                with self.db.get_connection() as conn:
-                    cursor = conn.execute("""
-                        UPDATE media_files SET
-                            status = 'failed',
-                            error = ?
-                        WHERE media_id = ?
-                    """, (error_msg, media_id))
-                    rows_updated = cursor.rowcount
-                    self.logger.debug(f"DEBUG: Updated {rows_updated} rows for media_id {media_id}")
-                    if rows_updated == 0:
-                        self.logger.warning(f"⚠️ No rows updated for media_id {media_id}")
+                success = self.db.update_media_file(
+                    media_id=str(media_id),
+                    status='failed'
+                )
+                if not success:
+                    self.logger.warning(f"⚠️ Failed to update media_id {media_id} to failed status")
             except Exception as db_error:
                 self.logger.error(f"❌ Ошибка обновления БД для {media_id}: {db_error}")
             
@@ -390,20 +377,31 @@ class ExtractMediaDownloaderPlaywright:
     async def _get_pending_media(self, limit: Optional[int] = None) -> List[Dict]:
         """Получает список медиа для скачивания"""
         try:
-            with self.db.get_connection() as conn:
-                query = """
-                    SELECT m.media_id as id, m.article_id, m.source_id, m.url, m.type, m.alt_text, m.caption
-                    FROM media_files m
-                    WHERE m.status = 'pending'
-                    ORDER BY m.created_at ASC
-                """
+            # Используем Supabase для получения pending медиа
+            response = self.db.client.table('media_files')\
+                .select('id, article_id, url, type, alt_text, caption')\
+                .eq('status', 'pending')\
+                .order('created_at', desc=False)
+            
+            if limit:
+                response = response.limit(limit)
                 
-                if limit:
-                    query += f" LIMIT {limit}"
+            result = response.execute()
+            media_list = result.data if result.data else []
+            
+            # Конвертируем в нужный формат (id -> media_id compatibility)
+            formatted_media = []
+            for media in media_list:
+                formatted_media.append({
+                    'id': media['id'],  # Используем UUID как media_id
+                    'article_id': media['article_id'],
+                    'url': media['url'],
+                    'type': media['type'],
+                    'alt_text': media.get('alt_text', ''),
+                    'caption': media.get('caption', '')
+                })
                 
-                media_list = conn.execute(query).fetchall()
-                
-                return [dict(row) for row in media_list]
+            return formatted_media
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения pending медиа: {e}")
@@ -436,8 +434,8 @@ class ExtractMediaDownloaderPlaywright:
             self.stats['processed'] += 1
             batch_stats["processed"] += 1
             
-            # Скачиваем файл (без retry)
-            result = await self._download_single_file(media_info)
+            # Скачиваем файл (без retry) с информацией о прогрессе
+            result = await self._download_single_file(media_info, file_index=i+1, total_files=len(media_list))
             
             if result['success']:
                 batch_stats["downloaded"] += 1
@@ -454,7 +452,7 @@ class ExtractMediaDownloaderPlaywright:
         
         # Log batch completion
         from app_logging import log_operation
-        log_operation('media_batch_download',
+        log_operation(f'✅ Батч завершен: скачано {batch_stats["downloaded"]}/{batch_stats["processed"]} ({round(success_rate, 1)}%), ошибок: {batch_stats["failed"]}',
             files_processed=batch_stats["processed"],
             files_downloaded=batch_stats["downloaded"],
             files_failed=batch_stats["failed"],
@@ -527,29 +525,39 @@ class ExtractMediaDownloaderPlaywright:
                 self.logger.info("🏁 Скачивание завершено: нет файлов для обработки")
                 
         # После завершения скачивания обновляем media_status для готовых статей
-        self._update_articles_media_status()
+        await self._update_articles_media_status()
         
         return total_stats
     
-    def _update_articles_media_status(self):
+    async def _update_articles_media_status(self):
         """Обновляет media_status для статей, где все медиафайлы обработаны"""
         try:
-            with self.db.get_connection() as conn:
-                # Находим статьи где все медиафайлы обработаны (нет pending)
-                cursor = conn.execute("""
-                    UPDATE articles 
-                    SET media_status = 'ready'
-                    WHERE media_status = 'processing'
-                      AND article_id NOT IN (
-                          SELECT DISTINCT article_id 
-                          FROM media_files 
-                          WHERE status = 'pending'
-                      )
-                """)
+            # Получаем статьи с media_status = 'processing'
+            processing_articles = self.db.client.table('articles')\
+                .select('article_id')\
+                .eq('media_status', 'processing')\
+                .execute()
+            
+            updated_count = 0
+            for article in processing_articles.data or []:
+                article_id = article['article_id']
                 
-                updated_count = cursor.rowcount
-                if updated_count > 0:
-                    self.logger.info(f"✅ Обновлено media_status для {updated_count} статей на 'ready'")
+                # Проверяем есть ли pending медиа для этой статьи
+                pending_media = self.db.client.table('media_files')\
+                    .select('id')\
+                    .eq('article_id', article_id)\
+                    .eq('status', 'pending')\
+                    .limit(1)\
+                    .execute()
+                
+                # Если нет pending медиа - обновляем статус на ready
+                if not pending_media.data:
+                    success = self.db.update_article_media_status(article_id, 'ready')
+                    if success:
+                        updated_count += 1
+                
+            if updated_count > 0:
+                self.logger.info(f"✅ Обновлено media_status для {updated_count} статей на 'ready'")
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка обновления media_status: {e}")

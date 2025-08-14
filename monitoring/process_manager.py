@@ -493,6 +493,30 @@ class ProcessManager:
             cleanup_results['error'] = str(e)
             return cleanup_results
     
+    def is_running(self) -> bool:
+        """Check if parser is running"""
+        return self.status == ProcessStatus.RUNNING
+    
+    def is_paused(self) -> bool:
+        """Check if parser is paused"""
+        return self.status == ProcessStatus.PAUSED
+    
+    def can_start(self) -> bool:
+        """Check if parser can be started"""
+        return self.status in [ProcessStatus.IDLE, ProcessStatus.STOPPED, ProcessStatus.ERROR]
+    
+    def can_pause(self) -> bool:
+        """Check if parser can be paused"""
+        return self.status == ProcessStatus.RUNNING
+    
+    def can_resume(self) -> bool:
+        """Check if parser can be resumed"""
+        return self.status == ProcessStatus.PAUSED
+    
+    def can_stop(self) -> bool:
+        """Check if parser can be stopped"""
+        return self.status in [ProcessStatus.RUNNING, ProcessStatus.PAUSED]
+    
     def get_status(self) -> Dict[str, Any]:
         """
         Get current process status and information

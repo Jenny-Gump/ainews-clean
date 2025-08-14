@@ -12,7 +12,7 @@ from typing import List, Dict, Optional, Any
 from urllib.parse import urlparse
 
 from app_logging import get_logger
-from core.database import Database
+from core.db_config import DatabaseConfig
 from services.firecrawl_client import FirecrawlClient
 
 
@@ -26,7 +26,7 @@ class WebMonitor:
     
     def __init__(self):
         self.logger = get_logger('services.web_monitor')
-        self.db = Database()
+        self.db = DatabaseConfig.get_database()
         self.firecrawl = FirecrawlClient()
         
     def _generate_hash(self, content: str) -> str:

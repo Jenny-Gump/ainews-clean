@@ -1,17 +1,27 @@
 # 📊 Change Tracking Module
 
-**Версия**: 2.4  
-**Статус**: Production Ready ✅  
+**Версия**: 3.0  
+**Статус**: Production Ready ✅ **SUPABASE**  
 **Назначение**: Отслеживание изменений + извлечение URL статей из новостных источников  
-**Последнее обновление**: 2025-08-08 - КРИТИЧЕСКИЙ БАГ ИСПРАВЛЕН: mark_urls_as_old() логика
+**Последнее обновление**: 2025-08-14 - **МИГРАЦИЯ НА SUPABASE ЗАВЕРШЕНА**
 
 ---
 
-## ✅ ВАЖНОЕ ОБНОВЛЕНИЕ (2025-08-10)
+## 🚀 КРИТИЧЕСКОЕ ОБНОВЛЕНИЕ (2025-08-14)
 
-**🎯 ПРОБЛЕМА МАППИНГА ДОМЕНОВ ИСПРАВЛЕНА** - URLExtractor теперь синхронизирован с ChangeMonitor и использует единый маппинг из `tracking_sources.json`.
+**💫 МИГРАЦИЯ НА SUPABASE ЗАВЕРШЕНА** - Полный переход с SQLite на Supabase для всех операций Change Tracking системы.
 
-**📚 ДЕТАЛИ ИСПРАВЛЕНИЯ**: [docs/DOMAIN_MAPPING_FIXED.md](docs/DOMAIN_MAPPING_FIXED.md)
+### ✅ Что изменилось:
+- **База данных**: SQLite → **Supabase Cloud Database**
+- **API calls**: `conn.execute()` → **Supabase REST API**
+- **Производительность**: Локальная БД → **Облачная инфраструктура**
+- **Интеграция**: Изолированная система → **Единая экосистема с основным пайплайном**
+
+### ✅ Новые возможности:
+- **Real-time мониторинг** через Supabase Dashboard
+- **Автоматическое масштабирование** облачной БД  
+- **Унифицированная архитектура** всей системы на Supabase
+- **Улучшенная отказоустойчивость** и производительность
 
 ---
 
@@ -23,7 +33,7 @@
 
 - 🔍 **Автоматическое обнаружение изменений** через Firecrawl API
 - 🔗 **Извлечение URL статей** из markdown контента страниц
-- 📊 **Двухуровневая БД** - tracked_articles + tracked_urls
+- 📊 **Двухуровневая БД** - tracked_articles + tracked_urls (**на Supabase**)
 - 🚀 **Батч-обработка** для эффективности с retry механизмом
 - 📈 **Детальная статистика** и мониторинг
 - 🎯 **Smart filtering** - только новые URL экспортируются
@@ -66,13 +76,20 @@ change_tracking/
 
 ---
 
-## 🗄️ База данных
+## 🗄️ База данных (Supabase)
 
-### Таблица `tracked_articles`
+### 🌟 Новая архитектура: Supabase Cloud Database
+
+**URL**: `https://mtguynupyltlqiwhmilc.supabase.co`  
+**Доступ**: Полный через Service Key + RPC функции  
+**Интеграция**: Единая экосистема с основным пайплайном
+
+### Таблица `tracked_articles` (Supabase)
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `article_id` | TEXT (PK) | Уникальный ID статьи |
+| `id` | BIGINT (PK) | Auto-increment primary key |
+| `article_id` | TEXT (UNIQUE) | Уникальный ID статьи |
 | `source_id` | TEXT | Источник (домен) |
 | `url` | TEXT (UNIQUE) | URL страницы |
 | `title` | TEXT | Заголовок страницы |
@@ -82,36 +99,44 @@ change_tracking/
 | `change_detected` | BOOLEAN | Обнаружено изменение |
 | `change_status` | TEXT | `new`, `changed`, `unchanged` |
 | `exported_to_main` | BOOLEAN | Экспортировано в основной пайплайп |
-| `last_checked` | DATETIME | Время последней проверки |
-| `created_at` | DATETIME | Время создания записи |
-| `updated_at` | DATETIME | Время последнего обновления |
+| `last_checked` | TIMESTAMPTZ | Время последней проверки (UTC) |
+| `created_at` | TIMESTAMPTZ | Время создания записи (UTC) |
+| `updated_at` | TIMESTAMPTZ | Время последнего обновления (UTC) |
 
-### Таблица `tracked_urls` (НОВАЯ)
+### Таблица `tracked_urls` (Supabase)
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `id` | INTEGER (PK) | Уникальный ID |
+| `id` | BIGINT (PK) | Auto-increment primary key |
 | `source_page_url` | TEXT | URL страницы-каталога (из tracked_articles) |
-| `article_url` | TEXT | URL конкретной статьи |
+| `article_url` | TEXT (UNIQUE) | URL конкретной статьи |
 | `article_title` | TEXT | Заголовок статьи |
-| `discovered_at` | DATETIME | Время обнаружения URL |
+| `discovered_at` | TIMESTAMPTZ | Время обнаружения URL (UTC, по умолчанию NOW()) |
 | `source_domain` | TEXT | Домен для source_id |
-| `is_new` | BOOLEAN | Требует экспорта (сбрасывается после экспорта) |
-| `exported_to_articles` | BOOLEAN | Экспортирован в таблицу articles |
-| `exported_at` | DATETIME | Время экспорта |
+| `is_new` | BOOLEAN | Требует экспорта (по умолчанию true) |
+| `exported_to_articles` | BOOLEAN | Экспортирован в таблицу articles (по умолчанию false) |
+| `exported_at` | TIMESTAMPTZ | Время экспорта (UTC) |
 
-### Индексы
+### Индексы и ограничения (Supabase)
 **tracked_articles:**
-- `idx_tracked_url` - по URL
-- `idx_tracked_source` - по source_id  
-- `idx_tracked_exported` - по exported_to_main
-- `idx_tracked_change` - по change_detected
+- Primary Key: `id` (BIGINT)
+- Unique: `article_id`, `url`
+- Index: `source_id`, `change_detected`, `exported_to_main`
+- Index: `last_checked` для сортировки
 
 **tracked_urls:**
-- `idx_tracked_urls_source_page` - по source_page_url
-- `idx_tracked_urls_domain` - по source_domain
-- `idx_tracked_urls_is_new` - по is_new
-- `idx_tracked_urls_exported` - по exported_to_articles
+- Primary Key: `id` (BIGINT)  
+- Unique: `article_url`
+- Index: `source_page_url`, `source_domain`
+- Index: `is_new`, `exported_to_articles` для фильтрации
+- Index: `discovered_at` для сортировки
+
+### 🚀 Преимущества Supabase:
+- **Автоматическое масштабирование** при росте нагрузки
+- **Real-time подписки** на изменения данных
+- **Встроенная безопасность** Row Level Security (RLS)
+- **API автоматически** - REST и GraphQL из коробки
+- **Резервное копирование** и восстановление данных
 
 ---
 
@@ -365,7 +390,7 @@ LOG_LEVEL=INFO                 # DEBUG для детального логиро�
 
 ### Paths
 - Sources file: `change_tracking/sources.txt`
-- Database: `data/ainews.db` (таблица `tracked_articles`)
+- Database: **Supabase Cloud** `https://mtguynupyltlqiwhmilc.supabase.co` (таблицы `tracked_articles`, `tracked_urls`)
 - Logs: `app_logging/` (change_tracking.monitor, change_tracking.database)
 
 ---
@@ -416,13 +441,20 @@ grep FIRECRAWL_API_KEY .env
 curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" https://api.firecrawl.dev/v0/status
 ```
 
-### Проблема: Database locked
+### Проблема: Supabase connection issues
 ```bash
-# Проверить активные соединения
-lsof data/ainews.db
+# Проверить подключение к Supabase
+python3 -c "
+from change_tracking.database import ChangeTrackingDB
+db = ChangeTrackingDB()
+print(db.get_tracking_stats())
+"
 
-# Перезапустить мониторинг
-pkill -f monitoring && cd monitoring && ./start_monitoring.sh
+# Проверить учетные данные Supabase
+grep SUPABASE_ .env
+
+# Проверить статус Supabase проекта
+curl -H "apikey: $SUPABASE_ANON_KEY" "$SUPABASE_URL/rest/v1/"
 ```
 
 ---
@@ -583,74 +615,130 @@ Extracted 0 URLs from https://openai.com/news/
 
 ---
 
-## 🔥 Changelog версии 2.7 (2025-08-11)
+## 🔥 Changelog версии 2.8 (2025-08-11)
 
-### ✅ MAJOR UPDATE: WEB SOURCES URL EXTRACTORS
+### ✅ ИСПРАВЛЕНА АРХИТЕКТУРНАЯ ОШИБКА: URL EXTRACTION
 
-#### 🎯 Задача выполнена:
-**Индивидуальное тестирование и настройка 45 web-источников для AI News Parser**
+#### 🚨 ПРОБЛЕМА ОБНАРУЖЕНА:
+**Неправильное использование общего экстрактора вместо индивидуальных конфигураций источников**
 
-**Было источников**: 47  
-**Удалено проблемных**: 2 (KUKA Robotics, Standard Bots)  
-**Успешно протестировано**: 43+ источников  
-**Итого к продакшену**: 45 источников
+**Что было сделано неправильно:**
+- Добавлен универсальный escape-паттерн в общий `url_extractor.py`
+- Игнорированы индивидуальные настройки из `source_extractors_complete.json`
+- 28 источников не работали из-за отсутствия специфичных паттернов
 
-#### 📊 Ключевые результаты:
-- **850+ статей найдено** из всех источников
-- **РЕАЛЬНОЕ тестирование** через Firecrawl API (не макетные данные)
-- **Индивидуальные паттерны** для каждого источника на основе реального контента
-- **Высококачественные source_extractors.json** паттерны
+#### ✅ ПРАВИЛЬНОЕ РЕШЕНИЕ:
+1. **Откачен универсальный escape-паттерн** из общего экстрактора
+2. **Добавлен специфичный метод** `_extract_escape_links()` для проблемных источников
+3. **Источники с escape-форматом** обрабатываются индивидуально:
+   - `deepmind.google` 
+   - `new.abb.com`
+   - `scale.com`
+   - `stability.ai` 
+   - `waymo.com`
 
-#### 🏆 Топ-источники по продуктивности:
-1. **Anthropic News**: 146 статей
-2. **FANUC America**: 88 статей  
-3. **Doosan Robotics**: 68 статей
-4. **Perplexity AI Blog**: 55 статей (исправлен с 1 до 55)
-5. **Cerebras AI Blog**: 49 статей
-6. **Crusoe AI Blog**: 48 статей
-7. **PathAI News**: 42 статей
-8. **Mind Foundry Blog**: 37 статей
+#### 📊 РЕЗУЛЬТАТЫ ИСПРАВЛЕНИЯ:
+- **ABB Robotics**: 0 → 16 URL ✅
+- **DeepMind**: 0 → 8 URL ✅  
+- **Scale**: 0 → 26 URL ✅
+- **Waymo**: 0 → 7 URL ✅
+- **Stability AI**: 0 → 30 URL ✅
 
-#### 🔧 Технические улучшения:
-- **132+ уникальных regex паттерна** созданы для точного извлечения URL
-- **Умная фильтрация** нерелевантных ссылок через exclude_urls
-- **Реальная валидация** контента от каждого источника
-- **Обновлена конфигурация** `/services/source_extractors.json` с статусом "tested_real"
+**Итого источников с URL**: 18 → 23 (+5)  
+**Итого URL в системе**: 200 → 280 (+80)  
+**Готовы к экспорту**: 80 URL
 
-#### ❌ Удаленные источники:
-1. **KUKA Robotics** - JavaScript-only контент, Firecrawl получает пустую страницу
-2. **Standard Bots** - нет блога, только корпоративная страница с формой
+#### 🛠️ ТЕХНИЧЕСКОЕ РЕШЕНИЕ:
+```python
+# В extract_urls_from_content():
+escape_sources = [
+    'deepmind.google', 'new.abb.com', 'scale.com', 'stability.ai', 'waymo.com'
+]
 
-#### 🗂️ Созданные файлы:
-- **43+ content_*.md файлов** с реальным контентом для отладки
-- **Детальные отчеты** для каждого протестированного источника:
-  - `KINOVA_TEST_RESULT.md` - 10+ статей
-  - `DOOSAN_TEST_RESULT.md` - 68 статей  
-  - `OPENEVIDENCE_TEST_RESULT.md` - 19 анонсов
-  - `STANDARD_BOTS_TEST_RESULT.md` - источник удален
+if any(domain in source_page_url for domain in escape_sources):
+    found_urls.extend(self._extract_escape_links(markdown_content, source_page_url, source_domain))
+```
 
-#### 📋 Методология:
-1. **Получение реального markdown** через Firecrawl Scrape API
-2. **Анализ структуры** каждого источника индивидуально
-3. **Создание точных regex паттернов** на основе реального контента
-4. **Тестирование и валидация** найденных URL
-5. **Обновление конфигурации** со статусом "tested_real"
+#### 🎯 ПРИНЦИП РАБОТЫ:
+- **Общий экстрактор**: стандартные markdown паттерны
+- **Специальный метод**: escape-последовательности `\\\\` для конкретных источников
+- **Правильные заголовки**: извлечение самой длинной содержательной строки
 
-### ✅ ПОЛНАЯ ГОТОВНОСТЬ К ПРОДАКШЕНУ
-- **87% покрытие источников** (45 из 52 изначальных)
-- **Высококачественные паттерны** проверенные на реальном контенте
-- **Отличное покрытие тематик**: AI стартапы, крупные корпорации, медицинский AI, робототехника
-- **850+ статей** готовы к парсингу основным пайплайном
-
-### 📈 Статистика финальная:
-- **Протестировано индивидуально**: 45 источников
-- **Среднее статей на источник**: 19
-- **Обработано символов контента**: 6+ миллионов
-- **Создано regex паттернов**: 132+
-- **Время тестирования**: 4+ часов детальной работы
+### ❌ ОСТАЛОСЬ 28 ИСТОЧНИКОВ:
+Требуют индивидуального анализа и добавления в список escape_sources или других специальных методов.
 
 ---
 
-**Обновлено**: 2025-08-11  
-**Версия**: 2.7 - MAJOR: Web Sources URL Extractors Complete (45/47 источников готовы к продакшену)  
+## 🔥 Changelog версии 2.7 (2025-08-11) - УСТАРЕЛ
+
+### ⚠️ ПРЕДЫДУЩАЯ ВЕРСИЯ СОДЕРЖАЛА АРХИТЕКТУРНУЮ ОШИБКУ
+Универсальный подход через общий экстрактор был неправильным. Правильно - индивидуальная обработка каждого источника через специфичные методы.
+
+---
+
+## 🚀 Changelog версии 3.0 (2025-08-14) - SUPABASE MIGRATION
+
+### ✅ ПОЛНАЯ МИГРАЦИЯ НА SUPABASE ЗАВЕРШЕНА
+
+#### 🎯 Технические изменения:
+- **Database Layer**: Полный переход с SQLite на Supabase Cloud Database
+- **API Integration**: Замена `conn.execute()` на `supabase.client.table()` операции
+- **Connection Management**: Использование SupabaseClient wrapper через `DatabaseConfig`
+- **Error Handling**: Адаптированы все методы для работы с Supabase API responses
+
+#### 🔧 Обновленные методы:
+```python
+# Вместо SQLite:
+conn.execute("SELECT * FROM tracked_articles WHERE url = ?", (url,))
+
+# Теперь Supabase:
+self.supabase.client.table('tracked_articles').select('*').eq('url', url).execute()
+```
+
+#### 🧪 Результаты тестирования:
+- ✅ **ChangeTrackingDB**: Инициализация без ошибок
+- ✅ **Supabase connection**: 50 tracked articles обнаружено  
+- ✅ **Recent changes**: 10 записей с правильными timestamps
+- ✅ **Export functionality**: Работает корректно (0 new URLs to export)
+- ✅ **Integration test**: RSS + Change Tracking + Export в единой цепочке
+
+#### 📊 Текущее состояние системы:
+```
+✅ 50 tracked articles в Supabase
+✅ 10 recent changes с активностью от:
+   - suno.com/blog
+   - blog.perplexity.ai  
+   - lambda.ai/blog
+   - scale.com/blog
+   - huggingface.co/blog
+✅ 0 errors в процессе миграции
+```
+
+#### 🌟 Новые возможности:
+- **Unified ecosystem**: Change Tracking теперь часть единой Supabase инфраструктуры
+- **Real-time monitoring**: Возможность подписки на изменения в таблицах
+- **Cloud scalability**: Автоматическое масштабирование при росте нагрузки  
+- **Better reliability**: Облачная отказоустойчивость вместо локальной SQLite
+
+#### ⚠️ Breaking Changes:
+- **Не совместимо** с предыдущими SQLite версиями
+- **Требуется настройка** Supabase credentials в `.env`
+- **Новая схема данных** с BIGINT primary keys и TIMESTAMPTZ полями
+
+#### 🎯 Команды после миграции:
+```bash
+# Тест подключения
+python3 -c "from change_tracking.database import ChangeTrackingDB; print(ChangeTrackingDB().get_tracking_stats())"
+
+# Полный цикл RSS + Change Tracking  
+bash scripts/run_rss_and_tracking.sh
+
+# Экспорт найденных URL
+python core/main.py --change-tracking --export-articles
+```
+
+---
+
+**Обновлено**: 2025-08-14  
+**Версия**: 3.0 - CRITICAL: Полная миграция на Supabase Cloud Database  
 **Автор**: AI News Parser Team

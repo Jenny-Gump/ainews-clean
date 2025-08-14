@@ -17,7 +17,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.database import Database
+from core.db_config import DatabaseConfig
 from app_logging import get_logger
 
 # Load environment variables
@@ -32,7 +32,7 @@ class ExtractRSSDiscovery:
     
     def __init__(self):
         self.logger = get_logger('extract_system.rss_discovery')
-        self.db = Database()
+        self.db = DatabaseConfig.get_database()
         
         # Загружаем источники с RSS для Extract API системы
         self.rss_sources = self._load_rss_sources()
@@ -378,8 +378,8 @@ class ExtractRSSDiscovery:
                 if i + self.batch_size < len(sources_to_process):
                     await asyncio.sleep(1)
         
-        # Обновляем глобальный last_parsed timestamp после завершения
-        if stats['new_articles'] > 0:
+        # Обновляем глобальный last_parsed timestamp после завершения (всегда, если источники обработаны)
+        if stats['sources_processed'] > 0:
             try:
                 current_time = datetime.now(timezone.utc)
                 timestamp_str = current_time.strftime('%Y-%m-%dT%H:%M:%SZ')

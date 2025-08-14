@@ -12,7 +12,9 @@ import json
 import logging
 from dataclasses import dataclass
 
-from .database import MonitoringDatabase
+from .supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
+get_supabase_monitoring = get_supabase_client  # Compatibility alias
 
 
 @dataclass
@@ -40,16 +42,12 @@ class RSSMonitor:
         self._load_rss_feeds()
     
     def _execute_query(self, query: str, params=None):
-        """Execute query using monitoring database"""
-        # Temporary workaround for execute_query issue
-        import sqlite3
+        """Execute query using Supabase"""
         try:
-            with sqlite3.connect(self.monitoring_db.db_path) as conn:
-                if params:
-                    cursor = conn.execute(query, params)
-                else:
-                    cursor = conn.execute(query)
-                return cursor.fetchall()
+            from core.db_config import DatabaseConfig
+            db = DatabaseConfig.get_database()
+            result = db.execute_raw_query(query, params)
+            return result if result else []
         except Exception as e:
             self.logger.error(f"Error executing query: {e}")
             raise
@@ -181,89 +179,46 @@ class RSSMonitor:
         return feed_statuses
     
     def save_rss_metrics(self, feed_status: RSSFeedStatus):
-        """Save RSS metrics to monitoring database"""
+        """Save RSS metrics to Supabase"""
         try:
-            # Save to rss_feed_metrics table
-            self._execute_query(
-                """INSERT INTO rss_feed_metrics 
-                   (source_id, feed_url, feed_status, articles_in_feed, 
-                    fetch_time_ms, last_updated, parse_errors)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    feed_status.source_id,
-                    feed_status.feed_url,
-                    feed_status.status,
-                    feed_status.articles_count,
-                    feed_status.fetch_time_ms,
-                    feed_status.last_updated,
-                    1 if feed_status.status == 'error' else 0
-                )
-            )
+            supabase = get_supabase_monitoring()
+            metrics = {
+                'source_id': feed_status.source_id,
+                'feed_url': feed_status.feed_url,
+                'feed_status': feed_status.status,
+                'items_found': feed_status.articles_count,
+                'fetch_time_ms': feed_status.fetch_time_ms,
+                'new_items': 0,  # Will be updated by parser
+                'parse_errors': 1 if feed_status.status == 'error' else 0,
+                'http_status_code': 200 if feed_status.status == 'healthy' else 500,
+                'error_message': feed_status.error_message
+            }
+            success = supabase.save_rss_metrics(metrics)
+            if not success:
+                self.logger.error(f"Failed to save RSS metrics for {feed_status.source_id}")
             
-            # Update source_metrics table with RSS info
-            self._execute_query(
-                """UPDATE source_metrics 
-                   SET rss_status = ?, rss_last_check = ?, rss_articles_found = ?, 
-                       rss_fetch_time_ms = ?
-                   WHERE source_id = ?""",
-                (
-                    feed_status.status,
-                    datetime.now(),
-                    feed_status.articles_count,
-                    feed_status.fetch_time_ms,
-                    feed_status.source_id
-                )
-            )
+            # Update source_metrics table with RSS info in Supabase
+            query = """UPDATE source_metrics 
+                       SET rss_status = %s, rss_last_check = NOW(), rss_articles_found = %s, 
+                           rss_fetch_time_ms = %s
+                       WHERE source_id = %s"""
+            self._execute_query(query, [
+                feed_status.status,
+                feed_status.articles_count,
+                feed_status.fetch_time_ms,
+                feed_status.source_id
+            ])
             
         except Exception as e:
             self.logger.error(f"Error saving RSS metrics for {feed_status.source_id}: {e}")
     
     def get_rss_summary(self) -> Dict[str, Any]:
-        """Get RSS system summary"""
+        """Get RSS system summary from Supabase"""
         try:
-            # Get recent RSS metrics
-            query = """
-                SELECT 
-                    feed_status,
-                    COUNT(*) as count,
-                    AVG(fetch_time_ms) as avg_fetch_time,
-                    AVG(articles_in_feed) as avg_articles
-                FROM rss_feed_metrics 
-                WHERE timestamp > datetime('now', '-1 hour')
-                GROUP BY feed_status
-            """
-            
-            results = self._execute_query(query)
-            
-            summary = {
-                'total_feeds': len(self._rss_feeds),
-                'status_breakdown': {},
-                'avg_fetch_time_ms': 0,
-                'avg_articles_per_feed': 0,
-                'last_check': None
-            }
-            
-            total_feeds_checked = 0
-            total_fetch_time = 0
-            total_articles = 0
-            
-            for row in results:
-                status, count, avg_fetch, avg_articles = row
-                summary['status_breakdown'][status] = count
-                total_feeds_checked += count
-                total_fetch_time += avg_fetch * count
-                total_articles += avg_articles * count
-            
-            if total_feeds_checked > 0:
-                summary['avg_fetch_time_ms'] = total_fetch_time / total_feeds_checked
-                summary['avg_articles_per_feed'] = total_articles / total_feeds_checked
-            
-            # Get last check time
-            last_check_query = "SELECT MAX(timestamp) FROM rss_feed_metrics"
-            last_check_result = self._execute_query(last_check_query)
-            if last_check_result and last_check_result[0][0]:
-                summary['last_check'] = last_check_result[0][0]
-            
+            supabase = get_supabase_monitoring()
+            summary = supabase.get_rss_summary()
+            # Add total feeds count from local config
+            summary['total_feeds'] = len(self._rss_feeds)
             return summary
             
         except Exception as e:
@@ -278,7 +233,7 @@ class RSSMonitor:
             }
     
     def get_feed_details(self) -> List[Dict[str, Any]]:
-        """Get detailed status for each feed"""
+        """Get detailed status for each feed from Supabase"""
         try:
             query = """
                 WITH latest_rss AS (
@@ -290,11 +245,9 @@ class RSSMonitor:
                     r.source_id,
                     r.feed_url,
                     r.feed_status,
-                    r.articles_in_feed,
+                    r.items_found as articles_count,
                     r.fetch_time_ms,
-                    r.last_updated,
-                    r.timestamp as last_check,
-                    NULL as source_name
+                    r.timestamp as last_check
                 FROM rss_feed_metrics r
                 INNER JOIN latest_rss lr ON r.source_id = lr.source_id AND r.timestamp = lr.max_timestamp
                 ORDER BY r.source_id
@@ -305,14 +258,13 @@ class RSSMonitor:
             feeds = []
             for row in results:
                 feeds.append({
-                    'source_id': row[0],
-                    'feed_url': row[1],
-                    'status': row[2],
-                    'articles_count': row[3],
-                    'fetch_time_ms': row[4],
-                    'last_updated': row[5],
-                    'last_check': row[6],
-                    'source_name': row[7] or row[0]
+                    'source_id': row.get('source_id'),
+                    'feed_url': row.get('feed_url'),
+                    'status': row.get('feed_status'),
+                    'articles_count': row.get('articles_count', 0),
+                    'fetch_time_ms': row.get('fetch_time_ms', 0),
+                    'last_check': row.get('last_check'),
+                    'source_name': self._rss_feeds.get(row.get('source_id'), {}).get('name', row.get('source_id'))
                 })
             
             return feeds
@@ -339,7 +291,7 @@ class RSSMonitor:
             
             # Log summary
             summary = self.get_rss_summary()
-            self.logger.info(f"Initial RSS summary: {summary['status_breakdown']}")
+            self.logger.info(f"Initial RSS summary: {summary.get('status_breakdown', summary)}")
             
         except Exception as e:
             self.logger.error(f"Error in initial RSS check: {e}")
@@ -357,7 +309,7 @@ class RSSMonitor:
                 
                 # Log summary
                 summary = self.get_rss_summary()
-                self.logger.info(f"RSS summary: {summary['status_breakdown']}")
+                self.logger.info(f"RSS summary: {summary.get('status_breakdown', summary)}")
                 
             except Exception as e:
                 self.logger.error(f"Error in RSS monitoring loop: {e}")

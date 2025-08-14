@@ -2,7 +2,108 @@
 
 Оптимизированная модульная панель управления для системы AI News Parser с автоматической обработкой всех статей в continuous mode.
 
-## 🚀 Статус: **ГОТОВО К ПРОДАКШЕНУ** - v2.8 (11 августа 2025)
+## 🔴 КРИТИЧЕСКИ ВАЖНО: ЛОГИ RSS ПАРСИНГА
+
+### ⚠️ КАК НЕ СЛОМАТЬ ЛОГИ (НИКОГДА НЕ ТРОГАТЬ!)
+
+**ФАЙЛЫ КОТОРЫЕ НЕЛЬЗЯ МЕНЯТЬ БЕЗ БЭКАПА:**
+1. `/monitoring/api/pipeline_supabase.py` - основной API для логов
+2. `/monitoring/api/__init__.py` - импорты роутеров
+3. `/monitoring/app.py` - регистрация роутеров
+4. `/monitoring/static/pipeline-logs.js` - клиентская часть логов
+
+### 🛠️ ПРОБЛЕМА С ЛОГАМИ И РЕШЕНИЕ
+
+**Проблема:** В `pipeline_supabase.py` есть ДВА endpoint с путем `/logs`:
+- Строка 159: Первый endpoint (возвращает поле `logs`)
+- Строка 398: Второй endpoint (возвращает поле `operations`) 
+
+**Почему ломается:** Первый endpoint перехватывает запросы и возвращает пустой массив если путь к логам неправильный.
+
+**ЧЕЛОВЕКОЧИТАЕМЫЕ ЛОГИ (РЕАЛИЗОВАНО 14.08.2025):**
+- Строки 183-186: Заменяет техническое поле `operation` на человекочитаемое `message`
+- Теперь показывает: `🔍 Scanning: openai.com` вместо `change_tracking_source_start`
+- Работает для всех операций где есть поле `message` в JSON
+
+**ПРАВИЛЬНОЕ СОСТОЯНИЕ (НЕ МЕНЯТЬ!):**
+```python
+# Строка 159 - ПЕРВЫЙ endpoint с правильным путем
+@router.get("/logs")
+async def get_pipeline_logs(limit: int = 50):
+    # КРИТИЧЕСКИ ВАЖНО: правильный путь к логам
+    base_path = Path(__file__).parent.parent.parent  # Go up to ainews-clean
+    logs_dir = base_path / "logs"
+    # ... остальной код
+
+# Строка 398 - ВТОРОЙ endpoint должен иметь ДРУГОЙ путь
+@router.get("/logs-detailed")  # НЕ "/logs"!
+async def get_pipeline_logs_detailed(limit: int = 50, offset: int = 0):
+    # ... код
+```
+
+### 📋 ЧЕКЛИСТ ПРОВЕРКИ ЛОГОВ
+
+1. **Проверить что логи отображаются в дашборде:**
+   ```bash
+   curl -s "http://localhost:8001/api/pipeline/logs" | python3 -m json.tool | head -20
+   ```
+   Должны быть поля `logs` с данными
+
+2. **Проверить что файл логов существует:**
+   ```bash
+   ls -la /Users/skynet/Desktop/AI\ DEV/ainews-clean/logs/operations.jsonl
+   ```
+
+3. **Проверить что мониторинг запущен:**
+   ```bash
+   ps aux | grep -v grep | grep "python.*app"
+   ```
+
+### 🔧 ВОССТАНОВЛЕНИЕ ИЗ БЭКАПА
+
+**Критические бэкапы мониторинга:**
+```bash
+# Создать бэкап ПЕРЕД любыми изменениями
+cd /Users/skynet/Desktop/AI\ DEV/ainews-clean
+backup_dir="backups/monitoring_critical_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$backup_dir"
+cp -r monitoring/api "$backup_dir/"
+cp -r monitoring/static "$backup_dir/"
+cp monitoring/app.py "$backup_dir/"
+echo "Бэкап создан: $backup_dir"
+
+# Восстановить из бэкапа (ЗАМЕНИТЕ monitoring_critical_YYYYMMDD_HHMMSS на нужную дату)
+cd /Users/skynet/Desktop/AI\ DEV/ainews-clean
+backup_dir="backups/monitoring_critical_YYYYMMDD_HHMMSS"
+cp -r "$backup_dir/api"/* monitoring/api/
+cp -r "$backup_dir/static"/* monitoring/static/
+cp "$backup_dir/app.py" monitoring/
+echo "Восстановлено из: $backup_dir"
+
+# Перезапустить мониторинг после восстановления
+cd monitoring
+./stop_monitoring.sh
+./start_monitoring.sh
+```
+
+### 🚨 ЕСЛИ ЛОГИ НЕ РАБОТАЮТ
+
+1. **НЕ ПАНИКОВАТЬ!**
+2. **Проверить оба endpoint в `pipeline_supabase.py`:**
+   - Первый должен быть на `/logs` (строка ~159)
+   - Второй должен быть на `/logs-detailed` или другом пути (строка ~398)
+3. **Проверить путь к логам в первом endpoint:**
+   - Должно быть: `base_path = Path(__file__).parent.parent.parent`
+   - НЕ должно быть: `logs_dir = Path("logs")` (относительный путь)
+4. **Перезапустить мониторинг:**
+   ```bash
+   cd /Users/skynet/Desktop/AI\ DEV/ainews-clean/monitoring
+   ./stop_monitoring.sh && ./start_monitoring.sh
+   ```
+
+---
+
+## 🚀 Статус: **ГОТОВО К ПРОДАКШЕНУ** - v2.9 (11 августа 2025)
 
 ✅ **Сокращение кода на 35%** (16,100 → 10,500 строк)  
 ✅ **Модульная архитектура** с четким разделением  
@@ -13,9 +114,43 @@
 ✅ **Оптимизация производительности** уровня продакшена  
 ✅ **ИСПРАВЛЕНА проблема с кнопкой Single Pipeline** - сохранение состояния при запуске
 ✅ **CONTINUOUS MODE по умолчанию** - обработка ВСЕХ pending статей в одном запуске
-✅ **🆕 Интеграция с Change Tracking** - кнопка Start RSS запускает RSS + Change Tracking
-✅ **🆕 Детальные логи Change Tracking** - показывает каждый источник и результаты сканирования
-✅ **🆕 ИСПРАВЛЕНА остановка RSS процессов** - корректное завершение всех дочерних процессов
+✅ **Интеграция с Change Tracking** - кнопка Start RSS запускает RSS + Change Tracking
+✅ **Детальные логи Change Tracking** - показывает каждый источник и результаты сканирования
+✅ **ИСПРАВЛЕНА остановка RSS процессов** - корректное завершение всех дочерних процессов
+✅ **🆕 Колонка Type в Articles** - отображение источника (RSS/Blog) с фильтрацией
+✅ **🆕 Отключено автообновление Articles** - сохранение фильтров и выделения
+
+---
+
+## 🆕 Обновления v2.9 (11 августа 2025)
+
+### Добавлена колонка Type в таблицу Articles
+- **Новая функциональность**: Колонка Type между Source и Date показывает источник статьи
+  - **RSS** - статьи из RSS лент (195 статей)
+  - **Blog** - статьи из блогов через Change Tracking (10 статей)
+- **Фильтрация по типу**:
+  - Dropdown фильтр с опциями: All Types, RSS, Blog
+  - Клик по типу в таблице фильтрует по этому типу
+  - Интеграция с существующими фильтрами
+- **Технические детали**:
+  - API endpoint обновлен для поддержки поля `article_type`
+  - Фильтрация через параметр `?article_type=RSS|Blog`
+  - Поле берется из `discovered_via` в БД
+- **Файлы изменены**:
+  - `monitoring/api/articles.py` - добавлено поле и фильтрация
+  - `monitoring/static/index.html` - новая колонка и UI фильтра
+- **Бекап**: `backups/add_type_column_20250811_162516/`
+
+### Отключено автообновление для вкладки Articles
+- **Проблема**: Автообновление каждые 2 минуты сбрасывало фильтры и выделение
+- **Решение**: Исключена вкладка Articles из автообновления
+- **Результат**:
+  - Фильтры и выделенные чекбоксы сохраняются
+  - Текущая страница пагинации не сбрасывается
+  - Обновление доступно через кнопку Refresh
+- **Технические детали**:
+  - Изменено условие в `refreshInterval` (строка 2874)
+  - Остальные вкладки продолжают обновляться каждые 2 минуты
 
 ---
 
@@ -125,7 +260,7 @@
 
 ### Требования
 - Python 3.13+
-- SQLite (включен)
+- Supabase (основная БД)
 - Зависимости из requirements.txt
 
 ### Команды запуска
@@ -332,14 +467,14 @@ requests.post('http://localhost:8001/api/pipeline/session/complete', json={
 
 ## 🗄️ Схема базы данных
 
-### Основная БД (`../data/ainews.db`)
+### Основная БД (Supabase)
 - **articles** - Контент и метаданные статей
 - **media_files** - Вложенные изображения  
 - **sources** - Конфигурации RSS лент
 - **🆕 pipeline_operations** - Логи операций пайплайна
 - **🆕 pipeline_sessions** - Сессии выполнения пайплайна
 
-### БД мониторинга (`../data/monitoring.db`)
+### БД мониторинга (Supabase monitoring tables)
 - **system_metrics** - Использование системных ресурсов
 - **source_metrics** - Оценки состояния RSS лент
 - **memory_metrics** - Отслеживание памяти процессов
@@ -359,7 +494,7 @@ monitoring/
 │   ├── memory.py          # Memory monitoring (481 lines)
 │   └── pipeline.py        # 🆕 Single pipeline integration (397 lines)
 ├── api_rss_endpoints.py   # Extract system endpoints
-├── database.py            # Database operations (1,529 lines)
+├── supabase_monitoring_database.py # Supabase operations
 ├── collectors.py          # Metrics collectors (588 lines)
 ├── memory_monitor.py      # Memory management (576 lines)
 ├── process_manager.py     # Process control (1,067 lines)
@@ -422,7 +557,7 @@ pkill -f "python.*app.py"
 
 #### Ошибки подключения к БД (HTTP 500)
 1. Нажмите кнопку "Initialize Database" во вкладке Memory
-2. Проверьте наличие файла БД: `ls ../data/ainews.db`
+2. Проверьте подключение к Supabase
 3. Перезапустите сервис мониторинга
 
 #### Не отображаются логи пайплайна

@@ -1,0 +1,9 @@
+{"timestamp": "2025-08-12T08:25:01.638321", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.0004889965057373047}
+{"timestamp": "2025-08-12T08:25:01.639630", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.00040078163146972656}
+{"timestamp": "2025-08-12T08:25:01.640324", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.000308990478515625}
+{"timestamp": "2025-08-12T08:25:01.640923", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.0002849102020263672}
+{"timestamp": "2025-08-12T08:25:01.641485", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.0002770423889160156}
+{"timestamp": "2025-08-12T08:25:01.642100", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.00033402442932128906}
+{"timestamp": "2025-08-12T08:26:20.063092", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.00033092498779296875}
+{"timestamp": "2025-08-12T08:26:20.064646", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.0002110004425048828}
+{"timestamp": "2025-08-12T08:27:00.332406", "error_type": "database_error", "message": "no such table: tracked_urls", "db_path": "data/ainews.db", "connection_time": 0.00018095970153808594}

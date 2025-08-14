@@ -1,0 +1,314 @@
+# Database Schema - Change Tracking
+
+**База данных**: Supabase (`https://mtguynupyltlqiwhmilc.supabase.co`)  
+**Таблица**: `tracked_articles`  
+**Назначение**: Хранение отслеживаемых страниц и извлеченных URL
+
+## 📋 Обзор
+
+Change Tracking использует отдельную таблицу `tracked_articles` в Supabase для изолированного хранения данных мониторинга. Это обеспечивает безопасность и предотвращает конфликты с основной системой статей.
+
+## 🗂️ Схема таблицы `tracked_articles`
+
+### Структура таблицы
+```sql
+CREATE TABLE tracked_articles (
+    article_id TEXT PRIMARY KEY,        -- Уникальный ID (UUID)
+    source_id TEXT NOT NULL,            -- ID источника (из tracking_sources.json)
+    url TEXT NOT NULL,                  -- URL отслеживаемой страницы
+    title TEXT,                         -- Заголовок страницы
+    description TEXT,                   -- Описание (если есть) 
+    published_date DATETIME,            -- Дата публикации (если определяется)
+    content TEXT,                       -- Полный markdown контент
+    last_checked DATETIME,              -- Время последней проверки
+    previous_hash TEXT,                 -- Предыдущий хеш контента
+    current_hash TEXT,                  -- Текущий хеш контента  
+    change_detected INTEGER DEFAULT 0,  -- Флаг обнаружения изменений (0/1)
+    change_status TEXT DEFAULT 'new',   -- Статус: new/changed/unchanged
+    exported_to_main INTEGER DEFAULT 0, -- Флаг экспорта в articles (0/1)
+    exported_at DATETIME,               -- Время экспорта
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Индексы
+```sql
+CREATE INDEX idx_tracked_source_id ON tracked_articles(source_id);
+CREATE INDEX idx_tracked_url ON tracked_articles(url);
+CREATE INDEX idx_tracked_change_status ON tracked_articles(change_status);
+CREATE INDEX idx_tracked_last_checked ON tracked_articles(last_checked);
+CREATE INDEX idx_tracked_exported ON tracked_articles(exported_to_main);
+```
+
+## 📊 Поля и их назначение
+
+| Поле | Тип | Описание | Пример |
+|------|-----|----------|---------|
+| **article_id** | TEXT | UUID статьи | `"a1b2c3d4"` |
+| **source_id** | TEXT | Идентификатор источника | `"anthropic"` |
+| **url** | TEXT | URL отслеживаемой страницы | `"https://www.anthropic.com/news"` |
+| **title** | TEXT | Заголовок страницы | `"Anthropic News"` |
+| **description** | TEXT | Описание страницы | `"Latest AI safety news"` |
+| **published_date** | DATETIME | Дата публикации | `"2025-08-11 12:00:00"` |
+| **content** | TEXT | Полный markdown контент | `"[Article 1](url1)..."` |
+| **last_checked** | DATETIME | Время последней проверки | `"2025-08-11T20:15:30+00:00"` |
+| **previous_hash** | TEXT | MD5 предыдущего контента | `"abc123def456"` |
+| **current_hash** | TEXT | MD5 текущего контента | `"def456ghi789"` |
+| **change_detected** | INTEGER | Обнаружены изменения | `1` (да) / `0` (нет) |
+| **change_status** | TEXT | Статус изменений | `"new"/"changed"/"unchanged"` |
+| **exported_to_main** | INTEGER | Экспортировано в articles | `1` (да) / `0` (нет) |
+| **exported_at** | DATETIME | Время экспорта | `"2025-08-11T20:30:00+00:00"` |
+
+## 🔄 Жизненный цикл записи
+
+### 1. Создание новой записи (статус: `new`)
+```sql
+INSERT INTO tracked_articles (
+    article_id, source_id, url, title, content,
+    last_checked, current_hash, change_status
+) VALUES (
+    'a1b2c3d4', 'anthropic', 'https://www.anthropic.com/news',
+    'Anthropic News', '[markdown content]',
+    '2025-08-11T20:00:00+00:00', 'abc123', 'new'
+);
+```
+
+### 2. Обновление при изменениях (статус: `changed`)
+```sql
+UPDATE tracked_articles SET
+    content = '[new markdown content]',
+    previous_hash = current_hash,
+    current_hash = 'def456',
+    change_detected = 1,
+    change_status = 'changed',
+    last_checked = '2025-08-11T20:15:00+00:00',
+    updated_at = CURRENT_TIMESTAMP
+WHERE article_id = 'a1b2c3d4';
+```
+
+### 3. Обновление без изменений (статус: `unchanged`)
+```sql  
+UPDATE tracked_articles SET
+    change_detected = 0,
+    change_status = 'unchanged',
+    last_checked = '2025-08-11T20:30:00+00:00',
+    updated_at = CURRENT_TIMESTAMP
+WHERE article_id = 'a1b2c3d4';
+```
+
+### 4. Пометка как экспортированной
+```sql
+UPDATE tracked_articles SET
+    exported_to_main = 1,
+    exported_at = '2025-08-11T20:45:00+00:00'
+WHERE article_id = 'a1b2c3d4';
+```
+
+## 📈 Статистика данных
+
+### По состоянию на 11.08.2025
+
+```sql
+-- Общее количество отслеживаемых страниц
+SELECT COUNT(*) FROM tracked_articles;
+-- Результат: 52 страницы
+
+-- Распределение по статусам
+SELECT change_status, COUNT(*) as count 
+FROM tracked_articles 
+GROUP BY change_status;
+-- new: 2, changed: 7, unchanged: 43
+
+-- Топ источники по количеству страниц  
+SELECT source_id, COUNT(*) as pages
+FROM tracked_articles 
+GROUP BY source_id
+ORDER BY pages DESC
+LIMIT 10;
+```
+
+### Статистика по источникам
+```sql
+-- Источники с множественными страницами
+SELECT source_id, COUNT(*) as page_count,
+       GROUP_CONCAT(url, '; ') as urls
+FROM tracked_articles 
+WHERE source_id IN ('databricks_tracking', 'perplexity', 'together')
+GROUP BY source_id;
+```
+
+## 🛠️ Операции с данными
+
+### Функции TrackingDatabase
+**Местоположение**: `change_tracking/database.py`
+
+```python
+class TrackingDatabase:
+    
+    def store_tracking_result(self, result: Dict[str, Any]) -> bool:
+        """Сохранить результат сканирования"""
+        
+    def get_existing_article(self, url: str) -> Optional[Dict]:
+        """Получить существующую запись по URL"""
+        
+    def update_article_status(self, article_id: str, status: str) -> bool:
+        """Обновить статус записи"""
+        
+    def get_sources_stats(self) -> Dict[str, int]:
+        """Получить статистику по источникам"""
+        
+    def get_recent_changes(self, limit: int = 10) -> List[Dict]:
+        """Получить последние изменения"""
+        
+    def mark_as_exported(self, article_id: str) -> bool:
+        """Пометить как экспортированную"""
+```
+
+### Примеры запросов
+
+#### Найти все новые изменения
+```sql
+SELECT source_id, url, change_status, last_checked
+FROM tracked_articles 
+WHERE change_status IN ('new', 'changed')
+ORDER BY last_checked DESC;
+```
+
+#### Статистика по времени последней проверки
+```sql
+SELECT 
+    source_id,
+    MAX(last_checked) as last_scan,
+    COUNT(*) as total_pages,
+    SUM(CASE WHEN change_detected = 1 THEN 1 ELSE 0 END) as changed_pages
+FROM tracked_articles
+GROUP BY source_id
+ORDER BY last_scan DESC;
+```
+
+#### Найти источники которые давно не сканировались
+```sql
+SELECT source_id, url, last_checked,
+       ROUND((julianday('now') - julianday(last_checked)) * 24, 2) as hours_ago
+FROM tracked_articles 
+WHERE last_checked < datetime('now', '-6 hours')
+ORDER BY last_checked ASC;
+```
+
+## 🔍 Извлеченные URL (embedded data)
+
+### Хранение URL внутри content
+Извлеченные URL статей не хранятся в отдельной таблице, а встраиваются в поле `content` как результат парсинга:
+
+```python
+# В monitor.py извлеченные URL добавляются в result
+result['extracted_urls'] = [
+    {
+        'article_url': 'https://example.com/article1',
+        'article_title': 'Article Title',
+        'source_domain': 'example_com'
+    }
+]
+
+# И сохраняются в content как JSON или текст
+```
+
+### Подсчет извлеченных URL
+```python
+# В коде Python
+def count_extracted_urls(content: str) -> int:
+    """Подсчитать количество извлеченных URL в контенте"""
+    try:
+        # Попытаться извлечь из JSON структуры
+        import json
+        data = json.loads(content)
+        if 'extracted_urls' in data:
+            return len(data['extracted_urls'])
+    except:
+        # Альтернативно - подсчет ссылок в markdown
+        import re
+        links = re.findall(r'\[([^\]]*)\]\((https?://[^)]+)\)', content)
+        return len(links)
+    return 0
+```
+
+## 🔗 Связи с другими таблицами
+
+### Связь с основной таблицей `articles`
+```sql
+-- Экспорт данных из tracked_articles в articles
+INSERT INTO articles (
+    article_id, source_id, url, title,
+    content_status, discovered_via, created_at
+)
+SELECT 
+    article_id, source_id, url, title,
+    'pending' as content_status,
+    'change_tracking' as discovered_via,
+    created_at
+FROM tracked_articles 
+WHERE exported_to_main = 0 AND change_status IN ('new', 'changed');
+```
+
+### Связь с таблицей `sources`
+```sql
+-- Проверить соответствие source_id 
+SELECT t.source_id, t.url, s.name
+FROM tracked_articles t
+LEFT JOIN sources s ON t.source_id = s.source_id
+WHERE s.source_id IS NULL;  -- Найти несоответствия
+```
+
+## ⚠️ Ограничения и соображения
+
+### Размер данных
+- **content поле**: Может содержать большие markdown документы (до нескольких MB)
+- **Индексация**: Поле content не индексируется из-за размера
+- **Очистка**: Рекомендуется периодическая очистка старых записей
+
+### Целостность данных
+- **URL уникальность**: Один URL = одна запись в таблице
+- **source_id валидность**: Должен существовать в tracking_sources.json
+- **Временные метки**: Всегда в UTC формате
+
+### Производительность
+- **Батч операции**: Рекомендуется обновлять несколько записей за раз
+- **Индексы**: Критично для производительности поиска
+- **VACUUM**: Периодическая дефрагментация базы
+
+## 🔧 Maintenance операции
+
+### Очистка старых данных
+```sql
+-- Удалить записи старше 30 дней
+DELETE FROM tracked_articles 
+WHERE last_checked < datetime('now', '-30 days');
+```
+
+### Пересчет статистики
+```sql
+-- Обновить статистику изменений
+UPDATE tracked_articles SET
+    change_detected = CASE 
+        WHEN current_hash != previous_hash THEN 1 
+        ELSE 0 
+    END
+WHERE previous_hash IS NOT NULL;
+```
+
+### Дефрагментация
+```sql
+-- VACUUM для оптимизации размера базы
+VACUUM;
+
+-- Анализ для оптимизации запросов
+ANALYZE tracked_articles;
+```
+
+---
+
+**🔗 См. также:**
+- [Source Mapping](source-mapping.md) — Конфигурация источников
+- [API Commands](api-commands.md) — Команды для работы с базой данных
+- [Processing Flow](../FLOW.md#database-storage) — Процесс сохранения данных
