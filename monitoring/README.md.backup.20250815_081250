@@ -273,9 +273,6 @@ cd "/Users/skynet/Desktop/AI DEV/ainews-clean/monitoring"
 
 # Или ручной запуск
 python3 app.py
-
-# Запуск в фоне
-./monitoring_background.sh
 ```
 
 **Дашборд**: http://localhost:8001

@@ -163,20 +163,29 @@ _update_post_content(wp_post_id, updated_content)
 
 ## База данных
 
-### Таблица `media_files`
+**База данных:** Supabase PostgreSQL  
+**URL:** `https://mtguynupyltlqiwhmilc.supabase.co`  
+**Таблица:** `media_files` (386+ записей)
+
+### Таблица `media_files` (Supabase)
 ```sql
 CREATE TABLE media_files (
-    id INTEGER PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     article_id TEXT,
-    url TEXT,                -- Внешний URL
-    file_path TEXT,          -- Локальный путь к файлу
-    alt_text TEXT,           -- Оригинальный alt
-    alt_text_ru TEXT,        -- Переведенный alt
-    image_order INTEGER,     -- Порядок в статье
-    status TEXT,             -- completed/failed
-    wp_media_id INTEGER,     -- ID в WordPress
-    wp_source_url TEXT,      -- WordPress URL (КРИТИЧНО!)
-    wp_upload_status TEXT    -- uploaded/pending
+    url TEXT NOT NULL,           -- Внешний URL источника
+    local_path TEXT,             -- Локальный путь к файлу
+    alt_text TEXT,               -- Оригинальный alt
+    alt_text_ru TEXT,            -- Переведенный alt  
+    width INTEGER,               -- Ширина изображения
+    height INTEGER,              -- Высота изображения
+    file_size INTEGER,           -- Размер файла в байтах
+    mime_type TEXT,              -- MIME тип (image/jpeg, image/png)
+    image_order INTEGER,         -- Порядок в статье
+    status TEXT DEFAULT 'pending', -- pending/completed/failed
+    wp_media_id INTEGER,         -- ID в WordPress Media Library
+    wp_source_url TEXT,          -- WordPress URL (КРИТИЧНО!)
+    wp_upload_status TEXT DEFAULT 'pending', -- pending/uploaded/failed
+    created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 

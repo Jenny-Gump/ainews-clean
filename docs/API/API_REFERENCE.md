@@ -21,13 +21,14 @@
 **Ответ:**
 ```json
 {
-  "version": "2.0.0",
+  "version": "3.0.0",
   "environment": "production",
-  "database_path": "/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db",
-  "monitoring_db_path": "/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db",
+  "database": "Supabase PostgreSQL",
+  "database_url": "https://mtguynupyltlqiwhmilc.supabase.co",
   "media_path": "/Users/skynet/Desktop/AI DEV/ainews-clean/data/media",
-  "sources_count": 26,
-  "active_sources": 26
+  "sources_count": 30,
+  "active_sources": 30,
+  "total_tables": 11
 }
 ```
 
@@ -397,7 +398,49 @@ ws.onmessage = (event) => {
 };
 ```
 
-## Особенности восстановленной версии
+## Supabase Database API
+
+### Direct Database Access
+Система использует Supabase PostgreSQL через REST API и Python клиент.
+
+**База данных:** `https://mtguynupyltlqiwhmilc.supabase.co`
+
+**Таблицы (11 total):**
+- `articles` - основные статьи
+- `wordpress_articles` - переведённые статьи  
+- `media_files` - медиафайлы
+- `sources` - источники новостей
+- `tracked_articles` - отслеживание изменений
+- `tracked_urls` - найденные URL
+- `pipeline_operations` - операции пайплайна
+- `global_config` - конфигурация
+- `system_metrics` - системные метрики
+- `performance_metrics` - метрики производительности
+- `memory_metrics` - метрики памяти
+
+### Python Client Usage
+```python
+from services.supabase_client import get_supabase_client
+
+client = get_supabase_client()
+
+# Получить pending статьи
+result = client.table('articles').select('*').eq('content_status', 'pending').execute()
+
+# Обновить статус
+client.table('articles').update({'content_status': 'parsed'}).eq('article_id', 'xyz').execute()
+```
+
+### MCP Server Access (для Claude)
+```bash
+# Выполнить SQL запрос
+claude mcp supabase execute_sql --query "SELECT COUNT(*) FROM articles"
+
+# Получить схему таблицы
+claude mcp supabase list_tables
+```
+
+## Особенности текущей версии
 
 ### ✅ Что работает:
 - Базовые endpoints статистики

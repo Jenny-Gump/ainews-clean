@@ -89,17 +89,18 @@ python core/main.py --single-pipeline
 - **Фаза 4**: Подготовка для WordPress (перевод, теги)
 - **Фаза 5**: Публикация в WordPress
 
-### 🆕 Continuous Pipeline Mode
+### 🆕 Continuous Pipeline Mode (Основной режим)
 ```bash
 python core/main.py --continuous-pipeline
-python core/main.py --continuous-pipeline --max-articles 10
-python core/main.py --continuous-pipeline --delay-between 10
+python core/main.py --continuous-pipeline --max-articles 10   # Лимит на количество
+python core/main.py --continuous-pipeline --delay-between 10  # Задержка между статьями (сек)
 ```
-Автоматическая обработка ВСЕХ pending статей:
-- **Циклическая обработка**: автоматически берет следующую статью
+**Автоматическая обработка ВСЕХ pending статей** - рекомендуемый режим работы:
+- **Циклическая обработка**: автоматически берет следующую статью из очереди
 - **Обработка ошибок**: при ошибке переходит к следующей статье
 - **Graceful shutdown**: Ctrl+C завершает после текущей статьи
 - **Статистика**: подробный отчет по завершении
+- **Workflow**: Сначала `--rss-discover`, затем `--continuous-pipeline`
 
 ### Change Tracking (47 источников)
 ```bash
@@ -130,7 +131,7 @@ ainews-clean/
 │   ├── db_config.py              # Конфигурация БД
 │   └── config.py                 # Конфигурация
 ├── services/                      # Сервисы фаз
-│   ├── supabase_client.py        # Supabase БД операции
+│   ├── supabase_client.py        # Supabase БД клиент
 │   ├── content_parser.py         # Firecrawl + DeepSeek
 │   ├── wordpress_publisher.py    # Перевод + публикация  
 │   ├── prompts_loader.py         # 🆕 Загрузчик промптов
@@ -141,8 +142,8 @@ ainews-clean/
 │   ├── tag_generator.txt         # Генерация тегов
 │   └── image_metadata.txt        # Метаданные изображений
 ├── monitoring/                    # Веб-дашборд
-├── change_tracking/              # Change Tracking модуль (47 источников)
-├── data/                         # Базы данных
+├── change_tracking/              # Change Tracking модуль
+├── data/                         # Медиафайлы и конфигурация
 └── agents/                       # Контексты агентов
 ```
 

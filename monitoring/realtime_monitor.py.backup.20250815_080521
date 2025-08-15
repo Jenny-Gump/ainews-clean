@@ -16,6 +16,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from app_logging import get_logger
 from core.db_config import DatabaseConfig
 from monitoring.supabase_client import get_supabase_client
+SupabaseMonitoringAdapter = get_supabase_client  # Compatibility alias
 
 logger = get_logger(__name__)
 
@@ -33,7 +34,7 @@ class RealtimeMonitor:
         """
         self.monitoring_db = monitoring_db
         self.websocket_manager = websocket_manager
-        self.adapter = monitoring_db  # Already a Supabase client
+        self.adapter = SupabaseMonitoringAdapter(monitoring_db)
         self.running = False
         self._tasks = []
         
@@ -61,13 +62,17 @@ class RealtimeMonitor:
         self.running = True
         
         # Запуск задач мониторинга
-        # Always use Supabase now
-        await self._setup_supabase_subscriptions()
+        if self.adapter.use_supabase:
+            # Подписка на Supabase real-time события
+            await self._setup_supabase_subscriptions()
+        else:
+            # Fallback на polling для SQLite
+            self._tasks.append(asyncio.create_task(self._sqlite_polling_loop()))
         
         # Запуск flush буфера метрик
         self._tasks.append(asyncio.create_task(self._metrics_flush_loop()))
         
-        logger.info("Realtime monitor started using Supabase")
+        logger.info(f"Realtime monitor started using {self.adapter.get_database_type()}")
     
     async def stop(self):
         """Остановка real-time мониторинга"""
@@ -91,27 +96,31 @@ class RealtimeMonitor:
         """Настройка подписок на Supabase таблицы"""
         
         # Подписка на таблицу articles
-        await self.adapter.subscribe_to_changes(
+        await self.adapter.subscribe_to_table(
             'articles',
-            self._handle_article_event
+            self._handle_article_event,
+            ['INSERT', 'UPDATE']
         )
         
         # Подписка на performance_metrics
-        await self.adapter.subscribe_to_changes(
+        await self.adapter.subscribe_to_table(
             'performance_metrics',
-            self._handle_performance_event
+            self._handle_performance_event,
+            ['INSERT']
         )
         
         # Подписка на system_metrics
-        await self.adapter.subscribe_to_changes(
+        await self.adapter.subscribe_to_table(
             'system_metrics',
-            self._handle_system_event
+            self._handle_system_event,
+            ['INSERT']
         )
         
         # Подписка на error_logs
-        await self.adapter.subscribe_to_changes(
+        await self.adapter.subscribe_to_table(
             'error_logs',
-            self._handle_error_event
+            self._handle_error_event,
+            ['INSERT']
         )
         
         logger.info("Supabase real-time subscriptions configured")

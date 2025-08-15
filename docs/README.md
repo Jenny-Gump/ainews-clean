@@ -27,6 +27,7 @@
 ### 🌐 API и интеграции
 - **[API/API_REFERENCE.md](API/API_REFERENCE.md)** - REST API endpoints для мониторинга
 - **[API/yoast_seo_integration.md](API/yoast_seo_integration.md)** - Интеграция с Yoast SEO через WordPress API
+- **[MCP_SERVERS.md](MCP_SERVERS.md)** - MCP серверы для Claude (Supabase, Playwright, etc.)
 
 ### 🛠️ Диагностика и решение проблем
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Руководство по решению частых проблем

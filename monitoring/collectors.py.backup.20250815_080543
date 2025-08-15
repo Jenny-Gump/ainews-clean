@@ -17,6 +17,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from .models import PerformanceMetrics, SourceMetrics
 from .supabase_client import get_supabase_client
+MonitoringDatabase = get_supabase_client  # Compatibility alias
+SupabaseMonitoringAdapter = get_supabase_client  # Compatibility alias
 from core.db_config import DatabaseConfig
 from app_logging import get_logger
 # from .log_processor import LogDataExtractor  # REMOVED - module not found
@@ -27,9 +29,9 @@ logger = get_logger(__name__)
 class MetricsCollector:
     """Base class for metric collectors"""
     
-    def __init__(self, monitoring_db):
+    def __init__(self, monitoring_db: MonitoringDatabase):
         self.monitoring_db = monitoring_db
-        self.supabase_adapter = monitoring_db  # Already a Supabase client
+        self.supabase_adapter = SupabaseMonitoringAdapter(monitoring_db)
         self._running = False
         self._thread = None
         self._batch_buffer = []
@@ -57,7 +59,7 @@ class MetricsCollector:
 class SystemResourceCollector(MetricsCollector):
     """Collects system resource metrics (CPU, memory, processes)"""
     
-    def __init__(self, monitoring_db, interval_seconds: int = 30):
+    def __init__(self, monitoring_db: MonitoringDatabase, interval_seconds: int = 30):
         super().__init__(monitoring_db)
         self.interval_seconds = interval_seconds
         self._metrics_history = []  # For rolling averages
@@ -215,7 +217,7 @@ class SystemResourceCollector(MetricsCollector):
 class SystemMetricsCollector(MetricsCollector):
     """Collects system performance metrics"""
     
-    def __init__(self, monitoring_db, interval_seconds: int = 60):
+    def __init__(self, monitoring_db: MonitoringDatabase, interval_seconds: int = 60):
         super().__init__(monitoring_db)
         self.interval_seconds = interval_seconds
         self._parse_queue_size = 0
@@ -410,7 +412,7 @@ class SystemMetricsCollector(MetricsCollector):
 class SourceHealthCollector(MetricsCollector):
     """Simplified source metrics collector - complex health scoring removed"""
     
-    def __init__(self, monitoring_db, check_interval_seconds: int = 300, log_processor: Optional[Any] = None):
+    def __init__(self, monitoring_db: MonitoringDatabase, check_interval_seconds: int = 300, log_processor: Optional[Any] = None):
         super().__init__(monitoring_db)
         self.check_interval_seconds = check_interval_seconds
         # FIXED: Add limits to prevent unlimited cache growth
