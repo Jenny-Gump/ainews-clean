@@ -56,7 +56,8 @@ async def get_pipeline_status():
         }
         
         # Determine if pipeline is running based on recent operations (last 5 minutes)
-        recent_time = datetime.now() - timedelta(minutes=5)
+        from datetime import timezone
+        recent_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         is_running = False
         if latest_operation and latest_operation['timestamp']:
             try:
@@ -71,7 +72,7 @@ async def get_pipeline_status():
             "latest_operation": latest_operation,
             "phase_stats": phase_stats,
             "is_running": is_running,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         return status

@@ -86,7 +86,11 @@ class FirecrawlClient:
         """Ensure aiohttp session is initialized"""
         if not self.session:
             self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
+                timeout=aiohttp.ClientTimeout(
+                    total=40,           # Reduced to 40s (less than asyncio timeout 45s)
+                    sock_connect=5,     # 5 seconds to establish connection (faster detection)
+                    sock_read=10        # 10 seconds to read data (faster timeout on stuck connections)
+                ),
                 headers={'Authorization': f'Bearer {self.api_key}'}
             )
     

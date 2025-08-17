@@ -238,23 +238,12 @@ async def get_articles(
             search=search,
             status=status,
             source_id=source_id,
+            article_type=article_type,
             date_from=date_from,
             date_to=date_to,
             page=page,
             limit=limit
         )
-        
-        # Add extra filters that aren't handled by MCP integration yet
-        # TODO: Implement these in the MCP integration
-        if article_type or has_media or published_today:
-            # For now, just add these to the response for compatibility
-            result["filters"].update({
-                "article_type": article_type,
-                "has_media": has_media,
-                "published_today": published_today,
-                "sort_by": sort_by,
-                "sort_order": sort_order
-            })
         
         return result
         

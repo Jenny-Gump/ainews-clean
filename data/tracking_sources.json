@@ -367,6 +367,14 @@
       "rss_url": "",
       "type": "web",
       "category": "ai_development"
+    },
+    {
+      "source_id": "hugging_face",
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog",
+      "rss_url": "https://huggingface.co/blog/rss",
+      "type": "web",
+      "category": "ai_platforms"
     }
   ],
   "settings": {

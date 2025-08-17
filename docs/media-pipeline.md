@@ -1,8 +1,10 @@
 # Media Pipeline - Полное руководство по работе с изображениями
 
+**Последнее обновление:** 17 августа 2025 - Исправлены заголовки изображений
+
 ## Обзор
 
-Система обработки медиа в AI News Parser работает на всех этапах пайплайна - от извлечения изображений из источников до публикации в WordPress с локальными URL. В августе 2025 была решена критическая проблема с использованием внешних URL вместо локальных.
+Система обработки медиа в AI News Parser работает на всех этапах пайплайна - от извлечения изображений из источников до публикации в WordPress с локальными URL. В августе 2025 были решены критические проблемы с использованием внешних URL вместо локальных и с отображением заголовков изображений.
 
 ## Архитектура Media Pipeline
 
@@ -76,15 +78,38 @@ def download_media_files(article_id):
 ### Phase 4: WordPress Translation (Перевод)
 **Файл:** `services/wordpress_publisher.py`
 
-#### 4.1 Перевод метаданных (DeepSeek Chat)
+#### 4.0 Промпт для метаданных изображений (ОБНОВЛЕН 17.08.2025)
+**Файл:** `prompts/image_metadata.txt`
+
+Промпт теперь генерирует 3 поля:
+1. **title** - короткий заголовок изображения на русском (до 60 символов)
+2. **alt_text_ru** - SEO-оптимизированный alt текст на русском (до 125 символов)
+3. **slug** - человекочитаемый slug для файла (латиница)
+
+#### 4.1 Генерация image_caption (НОВОЕ с 15.08.2025)
+```python
+# LLM генерирует единую подпись для всех изображений
+# В промпте article_translator.txt указано:
+"image_caption": "Подпись к изображению на русском языке в формате - Источник: www.доменноеимя источника"
+
+# Пример результата:
+{
+    "title": "Заголовок на русском",
+    "content": "Переведенный контент с [IMAGE_N] плейсхолдерами",
+    "image_caption": "Источник: www.techcrunch.com",  # ← НОВОЕ ПОЛЕ
+    // другие поля...
+}
+```
+
+#### 4.2 Перевод метаданных (DeepSeek Chat) - ОБНОВЛЕНО 17.08.2025
 ```python
 def _translate_media_metadata(metadata):
-    # Переводим alt-text на русский через DeepSeek
+    # Переводим alt-text и генерируем title через DeepSeek
     prompt = load_prompt('image_metadata', 
         alt_text=metadata['alt_text'],
         article_title=metadata['article_title'])
     
-    # DeepSeek Chat переводит (НОВОЕ с 11.08.2025)
+    # DeepSeek Chat переводит (ОБНОВЛЕНО с 17.08.2025)
     response = self.deepseek_client.chat.completions.create(
         model="deepseek-chat",
         messages=[{"role": "user", "content": prompt}],
@@ -92,14 +117,16 @@ def _translate_media_metadata(metadata):
     )
     
     translated = {
+        'title': "Короткий заголовок на русском",  # ← НОВОЕ с 17.08.2025
         'alt_text_ru': "Изображение показывает...",
         'slug': 'izobrazhenie-pokazyvaet'
     }
 ```
 
-#### 4.2 Генерация контента
+#### 4.3 Генерация контента
 - Контент сохраняется С плейсхолдерами `[IMAGE_N]`
 - Плейсхолдеры НЕ заменяются на этом этапе (после fix от 08.08.2025)
+- Поле `image_caption` сохраняется в таблице `wordpress_articles`
 
 ### Phase 5: WordPress Publishing (Публикация)
 **Файл:** `services/wordpress_publisher.py` + `core/single_pipeline.py`
@@ -148,13 +175,17 @@ updated_content = _replace_image_placeholders(
 
 # Заменяем плейсхолдеры на WordPress URL
 def _replace_image_placeholders(content, article_id):
-    # Получаем изображения с wp_source_url
-    SELECT COALESCE(wp_source_url, url) as display_url
+    # Получаем изображения с wp_source_url и caption
+    SELECT 
+        COALESCE(wp_source_url, url) as display_url,
+        alt_text_ru,
+        caption  # ← Добавлено 15.08.2025
     FROM media_files WHERE article_id = ?
     
-    # Заменяем [IMAGE_1] на HTML
+    # Заменяем [IMAGE_1] на HTML с figcaption (обновлено 15.08.2025)
     <figure class="wp-block-image size-large">
         <img src="{wp_source_url}" alt="{alt_text_ru}"/>
+        <figcaption>{caption}</figcaption>
     </figure>
 
 # Обновляем пост в WordPress
@@ -175,7 +206,8 @@ CREATE TABLE media_files (
     url TEXT NOT NULL,           -- Внешний URL источника
     local_path TEXT,             -- Локальный путь к файлу
     alt_text TEXT,               -- Оригинальный alt
-    alt_text_ru TEXT,            -- Переведенный alt  
+    alt_text_ru TEXT,            -- Переведенный alt
+    caption TEXT,                -- Подпись к изображению (единая для всех в статье)
     width INTEGER,               -- Ширина изображения
     height INTEGER,              -- Высота изображения
     file_size INTEGER,           -- Размер файла в байтах
@@ -186,6 +218,26 @@ CREATE TABLE media_files (
     wp_source_url TEXT,          -- WordPress URL (КРИТИЧНО!)
     wp_upload_status TEXT DEFAULT 'pending', -- pending/uploaded/failed
     created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Таблица `wordpress_articles` (Supabase)
+```sql
+CREATE TABLE wordpress_articles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    article_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    content TEXT,
+    excerpt TEXT,
+    slug TEXT,
+    categories TEXT,
+    tags TEXT,
+    _yoast_wpseo_title TEXT,
+    _yoast_wpseo_metadesc TEXT,
+    focus_keyword TEXT,
+    image_caption TEXT,          -- Единая подпись для всех изображений статьи (добавлено 15.08.2025)
+    wp_post_id INTEGER,
+    -- другие поля...
 );
 ```
 
@@ -226,6 +278,33 @@ SELECT COALESCE(wp_source_url, url) as display_url
 - Система стала полностью независимой от OpenAI
 - Медиа пайплайн работает стабильно
 
+### Проблема #3: Отображение подписей к изображениям (15 августа 2025)
+**Симптом**: Изображения публиковались без подписей с указанием источника.
+
+**Причина**:
+- Не было поля для хранения единой подписи к изображениям
+- HTML разметка не включала `<figcaption>` теги
+
+**Решение**:
+1. Добавлено поле `image_caption` в таблицу `wordpress_articles`
+2. LLM генерирует единую подпись в формате "Источник: www.example.com"
+3. Обновлен метод `_process_media_for_article` для использования единой подписи
+4. Обновлен метод `_replace_image_placeholders` для добавления `<figcaption>` в HTML
+
+### Проблема #4: Хеши вместо заголовков изображений (17 августа 2025)
+**Симптом**: Заголовки изображений в WordPress отображались как хеши (например "984c9902ab1a") вместо осмысленных названий на русском.
+
+**Причина**:
+1. Промпт `image_metadata.txt` не генерировал поле `title`
+2. При загрузке в WordPress не передавался параметр `title`
+3. WordPress использовал имя файла (хеш) как заголовок
+
+**Решение**:
+1. Обновлен промпт `image_metadata.txt` - добавлена генерация `title`
+2. Метод `_translate_media_metadata` теперь возвращает `title`
+3. Метод `_upload_media_to_wordpress` принимает и передает `title` в WordPress API
+4. При загрузке изображений title устанавливается корректно
+
 ### Изменения в коде
 
 #### wordpress_publisher.py
@@ -247,6 +326,13 @@ def _update_post_content(self, wp_post_id: int, new_content: str) -> bool:
 2. Загрузить медиа
 3. Заменить плейсхолдеры
 4. Обновить контент
+
+# Обновлен _replace_image_placeholders (15.08.2025):
+if img_data['caption']:
+    html = f'''<figure class="wp-block-image size-large">
+<img src="{img_data['display_url']}" alt="{img_data['alt_text']}" class="{wp_class}"/>
+<figcaption>{img_data['caption']}</figcaption>
+</figure>'''
 ```
 
 ## Паузы и тайминги

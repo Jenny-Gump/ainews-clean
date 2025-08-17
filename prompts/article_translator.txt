@@ -27,7 +27,9 @@ Offer compact context (when relevant).
 Include a clear, well-argued personal assessment — confident and precise, not a disclaimer.
 Tone may be analytical, skeptical, ironic, amused — but always fact-based.
 
-Begin with the original source mention in the format «по сообщению [SourceName]», where «по сообщению» is the anchor text linking to the source. Keep source names in English.
+First or last paragraph must include the original source mention (except for UGC source like reddit or medium) in the format «по сообщению [SourceName]» or «сообщает [SourceName]» or «пишет [SourceName]» (это если в первом абзаце) или «Источник новости: [SourceName]», «По материалам: [SourceName]»  и так далее по аналогии, where «по сообщению» «пишет» и т.д. is the anchor text linking to the source. Keep source names in English.
+
+How to create Headline "title": Review the content of the news article and identify its main informational point. Then create a new headline in Russian that reflects this point — not a literal translation of the original. The headline should be clear, self-contained, and stylistically neutral. Avoid clickbait, factual distortion, excessive emotional tone, or the typical style of English-language media. It should be a single simple or compound sentence.
 
 🚫 Avoid:
 
@@ -138,7 +140,7 @@ URL: {url}
 ЕСЛИ ВИДИШЬ В ТЕКСТЕ КОД используй следующую схему обертки: Пример для кода PHP:[php]код_для_подсветки[/php]. Соответственно работает для других языков по аналогии. Доступные теги: as3, actionscript3, arduino, bash, shell, coldfusion, cf, clojure, clj, cpp, c, c-sharp, csharp, css, delphi, pas, pascal, diff, patch, erl, erlang, fsharp, go, golang, groovy, haskell, java, jfx, javafx, js, jscript, javascript, latex, tex, matlab, matlabkey, objc, obj-c, perl, pl, php, plain, text, ps, powershell, py, python, r, splus, rails, rb, ror, ruby, scala, sql, swift, vb, vbnet, xml, xhtml, xslt, html, yaml, yml. И ОБЯЗАТЕЛЬНО УДАЛЯЙ ОБЕРТКУ <code></code>. Нужен только шорткод выше и все!
 
 КРИТИЧЕСКИ ВАЖНО ДЛЯ ССЫЛОК:
-- СОХРАНЯЙ ВСЕ ссылки в формате HTML <a href="url">текст</a> в переводе
+- СОХРАНЯЙ ВСЕ ссылки в формате HTML <a href="url">текст</a> в переводе, кроме ссылок где источник новости ссылается на свои же внутренние страницы. Такие ссылки не сохраняем. (Это единственное исключение)
 - НЕ удаляй ссылки на источники, исследования, другие статьи, документы, блог-посты
 - Конвертируй markdown ссылки в HTML формат
 - Переводи только ТЕКСТ ссылки, URL оставляй без изменений
@@ -148,12 +150,13 @@ URL: {url}
 
 ФОРМАТ ОТВЕТА (строго JSON):
 {{
-  "title": "Заголовок новости на русском",
+  "title": "Заголовок новости на русском", (строго без таких символов | - нужен просто текст)
   "content": "Полный текст статьи с HTML форматированием (подзаголовки, списки, цитаты)",
   "excerpt": "Краткая аннотация статьи (150-200 символов)",
   "slug": "url-slug-transliteratsiya",
   "categories": ["ОДНА категория из списка выше"],
   "_yoast_wpseo_title": "SEO заголовок (до 60 символов)",
   "_yoast_wpseo_metadesc": "SEO описание (до 160 символов)",
+  "image_caption": "Подпись к изображению на русском языке в формате - Источник: www.доменноеимя источника отсюда - {url}" (например - Источник: www.forbes.com)
   "focus_keyword": "главное ключевое слово"
 }}

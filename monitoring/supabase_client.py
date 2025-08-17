@@ -225,7 +225,7 @@ class SupabaseClient:
     def get_pipeline_operations(self, limit: int = 100) -> List[Dict]:
         """Get recent pipeline operations."""
         try:
-            result = self.client.table('pipeline_operations').select('*').order('created_at', desc=True).limit(limit).execute()
+            result = self.client.table('pipeline_operations').select('*').order('timestamp', desc=True).limit(limit).execute()
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching pipeline operations: {e}")

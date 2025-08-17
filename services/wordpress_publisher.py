@@ -582,6 +582,7 @@ class WordPressPublisher:
                     '_yoast_wpseo_title': wp_data.get('_yoast_wpseo_title'),
                     '_yoast_wpseo_metadesc': wp_data.get('_yoast_wpseo_metadesc'),
                     'focus_keyword': wp_data.get('focus_keyword'),
+                    'image_caption': wp_data.get('image_caption'),  # Добавлено поле image_caption
                     'featured_image_index': 0,
                     'images_data': {},
                     'translation_status': 'translated',
@@ -766,6 +767,7 @@ class WordPressPublisher:
                     completed_images.append({
                         'display_url': media.get('wp_source_url', media.get('url', '')),  # Приоритет WordPress URL
                         'alt_text': media.get('alt_text', ''),
+                        'caption': media.get('caption', ''),  # Добавляем caption
                         'image_order': media.get('image_order', i),
                         'wp_media_id': media.get('wp_media_id')
                     })
@@ -782,6 +784,7 @@ class WordPressPublisher:
                 image_map[str(img['image_order'])] = {
                     'display_url': img['display_url'],
                     'alt_text': img['alt_text'] or '',
+                    'caption': img['caption'] or '',  # Добавляем caption в mapping
                     'wp_media_id': img['wp_media_id']
                 }
                 
@@ -792,10 +795,19 @@ class WordPressPublisher:
                     img_data = image_map[order_num]
                     # WordPress-compatible HTML format with proper class
                     wp_class = f"wp-image-{img_data['wp_media_id']}" if img_data['wp_media_id'] else "wp-image-auto"
-                    html = f'''<figure class="wp-block-image size-large">
+                    
+                    # Добавляем figcaption только если есть caption
+                    if img_data['caption']:
+                        html = f'''<figure class="wp-block-image size-large">
+<img src="{img_data['display_url']}" alt="{img_data['alt_text']}" class="{wp_class}"/>
+<figcaption>{img_data['caption']}</figcaption>
+</figure>'''
+                    else:
+                        html = f'''<figure class="wp-block-image size-large">
 <img src="{img_data['display_url']}" alt="{img_data['alt_text']}" class="{wp_class}"/>
 </figure>'''
-                    logger.info(f"Replaced [IMAGE_{order_num}] with image")
+                    
+                    logger.info(f"Replaced [IMAGE_{order_num}] with image (caption: {'yes' if img_data['caption'] else 'no'})")
                     return html
                 else:
                     logger.warning(f"No image found for [IMAGE_{order_num}]")
@@ -813,7 +825,7 @@ class WordPressPublisher:
             
         return content
     
-    def _upload_media_to_wordpress(self, file_path: str, post_id: int, alt_text: str = '', caption: str = '') -> Optional[Dict[str, Any]]:
+    def _upload_media_to_wordpress(self, file_path: str, post_id: int, alt_text: str = '', caption: str = '', title: str = '') -> Optional[Dict[str, Any]]:
         """Загружает медиафайл в WordPress Media Library
         
         Returns:
@@ -845,6 +857,7 @@ class WordPressPublisher:
             
             data = {
                 'post': post_id,  # Associate with the post
+                'title': title if title else alt_text,  # Use title if provided, otherwise fallback to alt_text
                 'alt_text': alt_text,
                 'caption': caption,
                 'status': 'publish'
@@ -1249,6 +1262,17 @@ class WordPressPublisher:
             
             uploaded_media_ids = []
             
+            # Получаем image_caption из wordpress_articles
+            image_caption = ''
+            try:
+                wp_article = self.db.get_wordpress_article(article_id)
+                if wp_article and isinstance(wp_article, dict):
+                    image_caption = wp_article.get('image_caption', '')
+                    if image_caption:
+                        logger.info(f"Using image_caption from wordpress_articles: {image_caption[:50]}...")
+            except Exception as e:
+                logger.warning(f"Could not get image_caption from wordpress_articles: {e}")
+            
             for i, media in enumerate(media_files):
                 try:
                     # Пауза между медиафайлами (кроме первого)
@@ -1269,11 +1293,13 @@ class WordPressPublisher:
                     
                     if translated:
                         # Загружаем файл в WordPress Media Library
+                        # Используем единый image_caption для всех изображений, если он есть
                         wp_media_result = self._upload_media_to_wordpress(
                             file_path=media['file_path'],
                             post_id=wp_post_id,
                             alt_text=translated.get('alt_text_ru', ''),
-                            caption=translated.get('caption_ru', '')
+                            caption=image_caption if image_caption else translated.get('caption_ru', ''),
+                            title=translated.get('title', translated.get('alt_text_ru', ''))
                         )
                         
                         if wp_media_result and wp_media_result.get('wp_media_id'):
@@ -1283,7 +1309,7 @@ class WordPressPublisher:
                                     'wp_media_id': wp_media_result['wp_media_id'],
                                     'wp_source_url': wp_media_result['wp_url'],
                                     'alt_text': translated.get('alt_text_ru', ''),
-                                    'caption': translated.get('caption_ru', ''),
+                                    'caption': image_caption if image_caption else translated.get('caption_ru', ''),
                                     'image_order': i + 1  # Порядковый номер для плейсхолдеров
                                 })\
                                 .eq('id', media['media_id'])\
@@ -1436,6 +1462,7 @@ class WordPressPublisher:
                     media_progress=f'{media_index}/{total_media}'
                 )
                 return {
+                    'title': metadata.get('article_title', 'Изображение'),
                     'alt_text_ru': metadata.get('article_title', 'Изображение'),
                     'slug': self._generate_slug(metadata.get('article_title', 'image'))
                 }
@@ -1482,6 +1509,9 @@ class WordPressPublisher:
                     phase='media_metadata',
                     media_progress=f'{media_index}/{total_media}'
                 )
+                # Ensure we return title
+                if 'title' not in result:
+                    result['title'] = result.get('alt_text_ru', metadata.get('article_title', 'Изображение'))
                 return result
             except json.JSONDecodeError:
                 # Try to extract JSON from response
@@ -1495,6 +1525,9 @@ class WordPressPublisher:
                         phase='media_metadata',
                         media_progress=f'{media_index}/{total_media}'
                     )
+                    # Ensure we return title
+                    if 'title' not in result:
+                        result['title'] = result.get('alt_text_ru', metadata.get('article_title', 'Изображение'))
                     return result
                 else:
                     logger.error("Failed to parse translation response")

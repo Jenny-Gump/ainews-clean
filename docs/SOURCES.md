@@ -1,6 +1,6 @@
 # Источники новостей AI News Parser
 
-Всего в системе **78 источников**: 30 RSS источников + 48 tracking источников.
+Всего в системе **77 источников**: 30 RSS источников + 47 tracking источников.
 
 ## 📡 RSS источники (30)
 
@@ -46,7 +46,7 @@ RSS источники обрабатываются через RSS Discovery ф�
 | venturebeat_ai | VentureBeat AI | https://venturebeat.com/category/ai/feed/ |
 | wired_ai | Wired AI | https://www.wired.com/feed/rss |
 
-## 🔍 Tracking источники (48)
+## 🔍 Tracking источники (47)
 
 Tracking источники отслеживают изменения на веб-страницах через Change Tracking модуль.
 
@@ -82,9 +82,8 @@ Tracking источники отслеживают изменения на ве�
 - stanford_ai - Stanford AI Lab
 - huggingface - Hugging Face Blog
 
-#### AI Robotics (10)
+#### AI Robotics (9)
 - waymo - Waymo Blog
-- standardbots - Standard Bots Blog
 - abb_robotics - ABB Robotics News
 - fanuc - FANUC America News
 - kuka - KUKA Robotics News
@@ -125,7 +124,7 @@ Tracking источники отслеживают изменения на ве�
 ## 🗄️ База данных
 
 ### Таблица `sources`
-- **Всего записей**: 78 (30 RSS + 48 tracking)
+- **Всего записей**: 77 (30 RSS + 47 tracking)
 - **Основные поля**:
   - `source_id` - уникальный идентификатор
   - `name` - название источника

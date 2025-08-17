@@ -56,9 +56,24 @@ async def get_pipeline_status():
         # Determine if pipeline is running based on recent operations
         is_running = False
         if latest_operation:
-            op_time = datetime.fromisoformat(latest_operation.get('timestamp', ''))
-            if datetime.now() - op_time < timedelta(minutes=5):
-                is_running = latest_operation.get('status') == 'in_progress'
+            try:
+                # Handle both timestamp formats
+                timestamp_str = latest_operation.get('timestamp', '')
+                if timestamp_str.endswith('Z'):
+                    timestamp_str = timestamp_str.replace('Z', '+00:00')
+                op_time = datetime.fromisoformat(timestamp_str)
+                
+                # Make sure both datetimes have timezone info
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+                if op_time.tzinfo is None:
+                    op_time = op_time.replace(tzinfo=timezone.utc)
+                
+                if now - op_time < timedelta(minutes=5):
+                    is_running = latest_operation.get('status') == 'in_progress'
+            except Exception as e:
+                print(f"Error parsing timestamp: {e}")
+                is_running = False
         
         return {
             "status": "running" if is_running else "idle",

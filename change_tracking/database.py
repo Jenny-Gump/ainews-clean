@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any, Set
 from pathlib import Path
 from urllib.parse import urlparse
+import time
 
 from app_logging import get_logger
 from core.db_config import DatabaseConfig
@@ -50,8 +51,15 @@ class ChangeTrackingDB:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error creating tracked article {article_id}: {e}")
-            return False
+            # ИСПРАВЛЕНИЕ FK BUG: Специальная обработка Foreign Key ошибок
+            if 'foreign key constraint' in str(e).lower():
+                self.logger.error(f"❌ Source '{article_data['source_id']}' not found in sources table - skipping article")
+                self.logger.error(f"   Article URL: {article_data['url']}")
+                self.logger.error(f"   Please add source '{article_data['source_id']}' to sources table or fix source mapping")
+                return False  # Мягкий отказ вместо зависания
+            else:
+                self.logger.error(f"Error creating tracked article {article_id}: {e}")
+                return False
     
     def get_tracked_article_by_url(self, url: str) -> Optional[Dict[str, Any]]:
         """Получает отслеживаемую статью по URL из Supabase"""
@@ -258,8 +266,15 @@ class ChangeTrackingDB:
         """
         if not urls_data:
             return 0
+        
+        # ИСПРАВЛЕНИЕ БАГА: Добавляем source_page_url к каждому URL перед сохранением
+        enriched_urls = []
+        for url_data in urls_data:
+            enriched_data = url_data.copy()
+            enriched_data['source_page_url'] = source_page_url
+            enriched_urls.append(enriched_data)
             
-        return self.add_tracked_urls(urls_data)
+        return self.add_tracked_urls(enriched_urls)
     
     def store_baseline_urls(
         self, 
@@ -325,23 +340,32 @@ class ChangeTrackingDB:
             return 0
     
     def add_tracked_urls(self, urls_data: List[Dict[str, Any]]) -> int:
-        """Добавляет новые отслеживаемые URL в Supabase"""
+        """Добавляет новые отслеживаемые URL в Supabase с батч-обработкой"""
+        if not urls_data:
+            return 0
+            
         try:
-            new_count = 0
+            # ОПТИМИЗАЦИЯ: Батч-проверка существующих URL одним запросом
+            source_page_url = urls_data[0]['source_page_url']
+            article_urls = [url_data['article_url'] for url_data in urls_data]
+            
+            # Получаем ВСЕ существующие URL одним запросом
+            try:
+                existing_response = self.supabase.client.table('tracked_urls')\
+                    .select('article_url')\
+                    .eq('source_page_url', source_page_url)\
+                    .in_('article_url', article_urls)\
+                    .execute()
+                
+                existing_urls = {row['article_url'] for row in existing_response.data} if existing_response.data else set()
+            except Exception as e:
+                self.logger.error(f"Error checking existing URLs: {e}")
+                existing_urls = set()
+            
+            # Фильтруем только новые URL
+            new_urls_to_insert = []
             for url_data in urls_data:
-                try:
-                    # Проверяем существует ли уже этот URL
-                    existing = self.supabase.client.table('tracked_urls')\
-                        .select('id')\
-                        .eq('source_page_url', url_data['source_page_url'])\
-                        .eq('article_url', url_data['article_url'])\
-                        .limit(1)\
-                        .execute()
-                    
-                    if existing.data and len(existing.data) > 0:
-                        continue  # URL уже существует
-                    
-                    # Добавляем новый URL
+                if url_data['article_url'] not in existing_urls:
                     insert_data = {
                         'source_page_url': url_data['source_page_url'],
                         'article_url': url_data['article_url'],
@@ -350,19 +374,37 @@ class ChangeTrackingDB:
                         'is_new': True,
                         'exported_to_articles': False
                     }
-                    
-                    response = self.supabase.client.table('tracked_urls').insert(insert_data).execute()
-                    
-                    if response.data:
-                        new_count += 1
-                        self.logger.debug(f"Added new tracked URL: {url_data['article_url']}")
-                        
-                except Exception as e:
-                    self.logger.error(f"Error adding tracked URL {url_data.get('article_url', 'unknown')}: {e}")
-                    continue
+                    new_urls_to_insert.append(insert_data)
             
-            self.logger.info(f"Added {new_count} new tracked URLs to Supabase")
-            return new_count
+            if not new_urls_to_insert:
+                self.logger.debug(f"All {len(urls_data)} URLs already exist")
+                return 0
+            
+            # ОПТИМИЗАЦИЯ: Батч-вставка всех новых URL одним запросом
+            try:
+                response = self.supabase.client.table('tracked_urls').insert(new_urls_to_insert).execute()
+                
+                if response.data:
+                    new_count = len(response.data)
+                    self.logger.info(f"Added {new_count} new tracked URLs to Supabase (batch insert)")
+                    return new_count
+                else:
+                    self.logger.warning("Batch insert returned no data")
+                    return 0
+                    
+            except Exception as e:
+                self.logger.error(f"Error in batch insert: {e}")
+                # Fallback: попробовать вставить по одному
+                inserted = 0
+                for insert_data in new_urls_to_insert[:5]:  # Максимум 5 попыток
+                    try:
+                        response = self.supabase.client.table('tracked_urls').insert(insert_data).execute()
+                        if response.data:
+                            inserted += 1
+                    except Exception as single_error:
+                        self.logger.debug(f"Single insert failed: {single_error}")
+                        continue
+                return inserted
             
         except Exception as e:
             self.logger.error(f"Error in add_tracked_urls: {e}")
@@ -419,81 +461,164 @@ class ChangeTrackingDB:
             return []
     
     def export_urls_to_articles(self, new_urls: List[Dict[str, Any]]) -> int:
-        """Экспортирует новые URL в таблицу articles через Supabase"""
+        """Экспортирует новые URL в таблицу articles через Supabase с улучшенной обработкой"""
         if not new_urls:
             return 0
-            
-        exported_count = 0
         
+        from app_logging import log_operation
+        from urllib.parse import urlparse
+        
+        exported_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        total_urls = len(new_urls)
+        self.logger.info(f"Starting export of {total_urls} URLs")
+        
+        # Проверяем наличие необходимых методов в начале
+        if not hasattr(self.supabase, 'insert_article'):
+            self.logger.error("CRITICAL: Supabase client doesn't have insert_article method")
+            return 0
+        
+        # ОПТИМИЗАЦИЯ: Батч-проверка существующих URL
+        self.logger.info("Performing batch check for existing URLs...")
         try:
-            for url_data in new_urls:
-                try:
-                    # Генерируем уникальный ID для статьи
-                    article_id = f"ct_{str(uuid.uuid4())[:8]}"  # ct_ prefix для change tracking
-                    source_domain = url_data['source_domain']
-                    article_url = url_data['article_url']
-                    title = url_data.get('article_title', 'Untitled Article')
-                    
-                    # Проверяем дубликаты в Supabase
-                    if hasattr(self.supabase, 'article_exists') and self.supabase.article_exists(article_url):
-                        self.logger.debug(f"URL already exists in Supabase: {article_url}")
-                        # Помечаем как экспортированный и продолжаем
-                        self.supabase.client.table('tracked_urls')\
-                            .update({
-                                'exported_to_articles': True,
-                                'exported_at': datetime.now(timezone.utc).isoformat(),
-                                'is_new': False
-                            })\
-                            .eq('id', url_data['id'])\
-                            .execute()
-                        continue
-                    
-                    # Создаем source в Supabase если не существует
-                    source_id = self._ensure_supabase_source_exists(source_domain, article_url)
-                    
-                    # Добавляем в Supabase articles
-                    article_data = {
-                        'article_id': article_id,
-                        'source_id': source_id,
-                        'url': article_url,
-                        'title': title,
-                        'content_status': 'pending',
-                        'media_status': 'pending',
-                        'discovered_via': 'change_tracking',
-                        'created_at': datetime.now(timezone.utc).isoformat()
-                    }
-                    
-                    if hasattr(self.supabase, 'insert_article'):
-                        result = self.supabase.insert_article(article_data)
-                        if result:
-                            # Помечаем URL как экспортированный в tracking DB
-                            self.supabase.client.table('tracked_urls')\
-                                .update({
-                                    'exported_to_articles': True,
-                                    'exported_at': datetime.now(timezone.utc).isoformat(),
-                                    'is_new': False
-                                })\
-                                .eq('id', url_data['id'])\
-                                .execute()
-                            
-                            exported_count += 1
-                            self.logger.debug(f"Exported URL to Supabase articles: {article_url}")
-                        else:
-                            self.logger.warning(f"Failed to insert article to Supabase: {article_url}")
-                    else:
-                        self.logger.error("Supabase client doesn't have insert_article method")
-                        break
-                    
-                except Exception as e:
-                    self.logger.error(f"Error exporting URL {url_data.get('article_url', 'unknown')}: {e}")
-                    continue
-                    
-            self.logger.info(f"Successfully exported {exported_count} URLs to Supabase articles table")
-            return exported_count
+            urls_to_check = [url_data['article_url'] for url_data in new_urls]
+            
+            # Получаем все существующие URL одним запросом
+            existing_response = self.supabase.client.table('articles')\
+                .select('url')\
+                .in_('url', urls_to_check)\
+                .execute()
+            
+            existing_urls = {row['url'] for row in existing_response.data} if existing_response.data else set()
+            self.logger.info(f"Found {len(existing_urls)} existing URLs in articles table")
             
         except Exception as e:
-            self.logger.error(f"Error in export_urls_to_articles: {e}")
-            return 0
+            self.logger.error(f"Batch check failed: {e}, falling back to individual checks")
+            existing_urls = set()
+        
+        # Обрабатываем каждый URL по отдельности для надежности
+        for idx, url_data in enumerate(new_urls, 1):
+            try:
+                # Логируем прогресс каждого URL
+                article_url = url_data.get('article_url', '')
+                source_domain = url_data.get('source_domain', '')
+                domain = urlparse(article_url).netloc if article_url else source_domain
+                
+                log_operation(
+                    'change_tracking_export_url',
+                    phase='change_tracking',
+                    message=f'📤 Exporting [{idx}/{total_urls}]: {domain}',
+                    url=article_url,
+                    url_index=idx,
+                    total_urls=total_urls,
+                    success=True
+                )
+                
+                # Мониторинг производительности
+                operation_start = time.time()
+                
+                # Генерируем уникальный ID для статьи
+                article_id = f"ct_{str(uuid.uuid4())[:8]}"
+                title = url_data.get('article_title', 'Untitled Article')
+                
+                self.logger.debug(f"Processing URL {idx}/{total_urls}: {article_url}")
+                
+                # Проверяем дубликаты используя батч-результат
+                if article_url in existing_urls:
+                    self.logger.debug(f"URL already exists (batch check): {article_url[:100]}")
+                    # Помечаем как экспортированный даже если дубликат
+                    self._mark_url_as_exported(url_data['id'])
+                    skipped_count += 1
+                    continue
+                
+                # Дополнительная проверка только если не найден в батче (на случай race condition)
+                if not article_url in existing_urls and hasattr(self.supabase, 'article_exists'):
+                    try:
+                        exists = self.supabase.article_exists(article_url)
+                        if exists:
+                            self.logger.debug(f"URL exists (individual check): {article_url[:100]}")
+                            self._mark_url_as_exported(url_data['id'])
+                            skipped_count += 1
+                            continue
+                    except Exception as e:
+                        self.logger.warning(f"Individual check failed for {article_url[:100]}: {e}")
+                        # Продолжаем даже если проверка не удалась
+                
+                # Создаем source в Supabase если не существует
+                try:
+                    source_id = self._ensure_supabase_source_exists(source_domain, article_url)
+                except Exception as e:
+                    self.logger.error(f"Failed to ensure source for {source_domain}: {e}")
+                    failed_count += 1
+                    continue
+                
+                # Добавляем в Supabase articles
+                article_data = {
+                    'article_id': article_id,
+                    'source_id': source_id,
+                    'url': article_url,
+                    'title': title,
+                    'content_status': 'pending',
+                    'media_status': 'pending',
+                    'discovered_via': 'change_tracking',
+                    'created_at': datetime.now(timezone.utc).isoformat()
+                }
+                
+                # Вставляем статью с обработкой ошибок
+                try:
+                    result = self.supabase.insert_article(article_data)
+                    
+                    if result:
+                        # Успешно вставлено - помечаем как экспортированный
+                        self._mark_url_as_exported(url_data['id'])
+                        exported_count += 1
+                        
+                        # Логируем успех
+                        operation_duration = time.time() - operation_start
+                        self.logger.info(f"✅ Exported [{idx}/{total_urls}]: {article_url} ({operation_duration:.2f}s)")
+                        
+                        # Добавляем небольшую задержку чтобы не перегружать API
+                        if idx < total_urls:
+                            time.sleep(0.1)
+                    else:
+                        self.logger.warning(f"Insert returned False for: {article_url}")
+                        failed_count += 1
+                        
+                except Exception as e:
+                    self.logger.error(f"Failed to insert article {article_url}: {e}")
+                    failed_count += 1
+                    continue
+                    
+            except Exception as e:
+                self.logger.error(f"Unexpected error processing URL {idx}/{total_urls}: {e}")
+                failed_count += 1
+                continue
+        
+        # Финальная статистика
+        self.logger.info(f"Export completed: {exported_count} exported, {skipped_count} skipped (duplicates), {failed_count} failed")
+        
+        if failed_count > 0:
+            self.logger.warning(f"⚠️ {failed_count} URLs failed to export and will be retried on next run")
+        
+        return exported_count
+    
+    def _mark_url_as_exported(self, url_id: int) -> bool:
+        """Помечает URL как экспортированный в tracked_urls"""
+        try:
+            self.supabase.client.table('tracked_urls')\
+                .update({
+                    'exported_to_articles': True,
+                    'exported_at': datetime.now(timezone.utc).isoformat(),
+                    'is_new': False
+                })\
+                .eq('id', url_id)\
+                .execute()
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to mark URL {url_id} as exported: {e}")
+            return False
     
     def _ensure_supabase_source_exists(self, source_domain: str, sample_url: str) -> str:
         """Создает source в Supabase если не существует, возвращает source_id"""

@@ -313,7 +313,6 @@ class PipelineLogs {
             'soundhound': 'SoundHound',
             'b12': 'B12',
             'c3ai': 'C3 AI',
-            'standardbots': 'Standard Bots',
             'abb_robotics': 'ABB Robotics',
             'fanuc': 'FANUC',
             'kuka': 'KUKA',

@@ -377,7 +377,8 @@ class ProcessManager:
                 try:
                     cmdline = proc.info['cmdline']
                     if cmdline and any(arg for arg in cmdline if any(
-                        keyword in arg for keyword in ['rss_scrape_parser', 'unified_crawl_parser', 'ainews-clean']
+                        keyword in arg for keyword in ['rss_scrape_parser', 'unified_crawl_parser', 'ainews-clean', 
+                                                       'run_rss_and_tracking.sh', 'main.py', '--rss-discover']
                     )):
                         proc_pid = proc.info['pid']
                         proc.kill()

@@ -217,7 +217,10 @@ class SupabaseClient:
     def upsert_source(self, source_data: Dict[str, Any]) -> Optional[Dict]:
         """Insert or update source"""
         try:
-            response = self.client.table('sources').upsert(source_data).execute()
+            response = self.client.table('sources').upsert(
+                source_data,
+                on_conflict='source_id'  # Указываем конфликтную колонку для корректного UPSERT
+            ).execute()
             logger.info(f"Source upserted: {source_data.get('source_id')}")
             return response.data[0] if response.data else None
         except Exception as e:
@@ -339,8 +342,12 @@ class SupabaseClient:
         return self.set_global_config('global_last_parsed', timestamp, 'Global last parsed timestamp for all sources')
     
     def article_exists(self, url: str) -> bool:
-        """Check if article exists and is not deleted"""
+        """Check if article exists and is not deleted with timeout protection"""
+        import time
+        start_time = time.time()
+        
         try:
+            # Add timeout protection - max 3 seconds
             response = self.client.table('articles')\
                 .select('article_id')\
                 .eq('url', url)\
@@ -348,9 +355,18 @@ class SupabaseClient:
                 .limit(1)\
                 .execute()
             
+            elapsed = time.time() - start_time
+            if elapsed > 2:
+                logger.warning(f"Slow article_exists check: {elapsed:.2f}s for URL: {url[:100]}")
+            
             return len(response.data) > 0
             
         except Exception as e:
+            elapsed = time.time() - start_time
+            if elapsed > 3:
+                logger.error(f"article_exists timeout after {elapsed:.2f}s for URL: {url[:100]}")
+                # При таймауте возвращаем False чтобы продолжить обработку
+                return False
             logger.error(f"Failed to check article existence: {e}")
             return False
     

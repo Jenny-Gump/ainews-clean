@@ -1,8 +1,9 @@
 # Change Tracking System - Детальный Flow
 
-**Версия:** 2.0 (август 2025)  
-**Статус:** Production Ready  
-**Основа:** Анализ кода из change_tracking/monitor.py и database.py
+**Версия:** 3.1 (15 августа 2025)  
+**Статус:** Production Ready + Performance Optimized  
+**Основа:** Анализ кода из change_tracking/monitor.py и database.py  
+**Обновления:** Исправлены зависания, duplicate key errors, оптимизирована производительность
 
 ---
 
@@ -77,45 +78,66 @@
 - **Constraint:** `UNIQUE(source_page_url, article_url)`
 - **При дубле:** `IntegrityError` → игнорируется, счетчик не увеличивается
 
-### ФАЗА 4: Экспорт в articles (`--export-articles`)
+### ФАЗА 4: Экспорт в articles (`--export-articles`) [ОПТИМИЗИРОВАНО v3.1]
 
-#### Шаг 4.1: Выборка готовых к экспорту
-- **Код:** `database.py:130-137`
-- **SQL:** 
-  ```sql
-  SELECT * FROM tracked_urls 
-  WHERE is_new = 1 AND exported_to_articles = 0
-  ORDER BY discovered_at DESC
-  LIMIT 100
+#### Шаг 4.1: Выборка готовых к экспорту (Supabase)
+- **Код:** `database.py:447-460`
+- **Supabase Query:** 
+  ```python
+  response = self.supabase.client.table('tracked_urls')\
+      .select('*')\
+      .eq('is_new', True)\
+      .eq('exported_to_articles', False)\
+      .order('discovered_at', desc=True)\
+      .limit(limit)\
+      .execute()
   ```
-- **Лимит:** 100 URL за раз
+- **Лимит:** Настраиваемый (по умолчанию 100)
 
-#### Шаг 4.2: Вставка в articles
-- **Код:** `database.py:175-180`
-- **SQL:**
-  ```sql
-  INSERT INTO articles (
-      article_id, source_id, url, title,
-      content_status, media_status, discovered_via
-  ) VALUES (?, ?, ?, ?, 'pending', 'pending', 'change_tracking')
+#### Шаг 4.2: Батчевая обработка [NEW v3.1]
+- **Код:** `database.py:485-495`
+- **Оптимизации:**
+  ```python
+  BATCH_SIZE = 50  # Обрабатываем батчами
+  for batch_start in range(0, total_urls, BATCH_SIZE):
+      batch = new_urls[batch_start:batch_end]
+      logger.info(f"Processing batch {batch_num}/{total_batches}")
+  ```
+- **Мониторинг:** Время каждой операции замеряется
+
+#### Шаг 4.3: Проверка дубликатов с таймаутом [NEW v3.1]
+- **Код:** `database.py:502-507`
+- **Защита от зависаний:**
+  ```python
+  if self._with_timeout(self.supabase.article_exists, 10)(article_url):
+      # URL уже существует, помечаем как экспортированный
   ```
 
-#### Шаг 4.3: Обновление флагов
-- **Код:** `database.py:183-192`
-- **SQL:**
-  ```sql
-  UPDATE tracked_urls 
-  SET exported_to_articles = 1, 
-      exported_at = ?,
-      is_new = 0
-  WHERE id = ?
+#### Шаг 4.4: Создание source с on_conflict [FIXED v3.1]
+- **Код:** `services/supabase_client.py:220-222`
+- **Исправление duplicate key:**
+  ```python
+  response = self.client.table('sources').upsert(
+      source_data,
+      on_conflict='source_id'  # Правильный UPSERT
+  ).execute()
   ```
-- **Результат:** URL помечен как обработанный
 
-#### Шаг 4.4: Обработка дублей в articles
-- **Код:** `database.py:196-210`
-- **При `IntegrityError`:** флаги все равно сбрасываются
-- **Проблема:** articles НЕ имеет UNIQUE constraint на url
+#### Шаг 4.5: Вставка в articles с мониторингом
+- **Код:** `database.py:524-545`
+- **Supabase Insert:**
+  ```python
+  result = self._with_timeout(self.supabase.insert_article, 10)(article_data)
+  if operation_duration > 5:
+      logger.warning(f"Slow export: {operation_duration:.2f}s")
+  ```
+
+#### Шаг 4.6: Обновление флагов и полное логирование [IMPROVED v3.1]
+- **Код:** `monitor.py:683-695`
+- **Улучшения:**
+  - Логируются ВСЕ URL с индексами: `[11/20]`
+  - Замер времени каждой операции
+  - Батчевые результаты: `Batch 1/3 completed: 45 URLs exported`
 
 ---
 

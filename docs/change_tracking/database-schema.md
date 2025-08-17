@@ -1,8 +1,9 @@
 # Database Schema - Change Tracking
 
 **База данных**: Supabase (`https://mtguynupyltlqiwhmilc.supabase.co`)  
-**Таблицы**: `tracked_articles`, `tracked_urls`  
-**Назначение**: Хранение отслеживаемых страниц и извлеченных URL статей
+**Таблицы**: `tracked_articles`, `tracked_urls`, `sources` (shared)  
+**Назначение**: Хранение отслеживаемых страниц и извлеченных URL статей  
+**Версия**: 3.2 (16.08.2025) - Исправлен критический баг экспорта
 
 ## 📋 Обзор
 
@@ -157,9 +158,35 @@ tracked_urls (найденные статьи)
     ↓ [экспорт]
 articles (основная БД)
 
+## 🔧 Оптимизации производительности (v3.2)
+
+### Исправление критического бага экспорта
+- **Удален проблемный signal.SIGALRM** - не совместим с asyncio/httpx
+- **Логирование перенесено в цикл обработки** - каждый URL логируется при экспорте
+- **Индивидуальная обработка URL** - ошибка одного не прерывает остальные
+
+### Улучшенная обработка экспорта
+- URL обрабатываются по одному с немедленной пометкой
+- Детальное логирование каждой операции с временем выполнения
+- Статистика: exported, skipped (duplicates), failed
+
+### Правильный UPSERT для sources
+```python
+# services/supabase_client.py:220
+response = self.client.table('sources').upsert(
+    source_data,
+    on_conflict='source_id'  # Указываем конфликтную колонку
+).execute()
+```
+
+### Мониторинг производительности
+- Замер времени каждой операции
+- Предупреждения о медленных операциях (>2-5 сек)
+- Детальное логирование с индексами URL
+
 ## 📈 Статистика данных
 
-### По состоянию на 11.08.2025
+### По состоянию на 16.08.2025
 
 ```sql
 -- Общее количество отслеживаемых страниц
@@ -171,6 +198,10 @@ SELECT change_status, COUNT(*) as count
 FROM tracked_articles 
 GROUP BY change_status;
 -- new: 2, changed: 7, unchanged: 43
+
+-- Экспортированные URL
+SELECT COUNT(*) FROM tracked_urls WHERE exported_to_articles = true;
+-- Результат: 10+ URL успешно экспортированы
 
 -- Топ источники по количеству страниц  
 SELECT source_id, COUNT(*) as pages

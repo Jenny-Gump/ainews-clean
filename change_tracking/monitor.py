@@ -76,11 +76,23 @@ class ChangeMonitor:
         if clean_url in self.tracking_sources:
             return self.tracking_sources[clean_url]
         
+        # ИСПРАВЛЕНИЕ FK BUG: Специальные маппинги для проблемных доменов
+        domain_mappings = {
+            'huggingface.co': 'hugging_face',
+            'www.huggingface.co': 'hugging_face',
+            'doosanrobotics.com': 'doosan_robotics',
+            'www.doosanrobotics.com': 'doosan_robotics'
+        }
+        
+        domain = urlparse(url).netloc.lower()
+        if domain in domain_mappings:
+            return domain_mappings[domain]
+        
         # Fallback to domain-based ID (for backward compatibility)
-        domain = urlparse(url).netloc.replace('.', '_')
-        if domain.startswith('www_'):
-            domain = domain[4:]
-        return domain
+        clean_domain = domain.replace('.', '_')
+        if clean_domain.startswith('www_'):
+            clean_domain = clean_domain[4:]
+        return clean_domain
     
     async def scan_webpage(self, url: str, max_retries: int = 3) -> Dict[str, Any]:
         """
@@ -186,10 +198,13 @@ class ChangeMonitor:
             await asyncio.sleep(8)  # Each source takes 8-15 seconds to scan
             
             async with self.firecrawl as client:
-                # Скрейпим страницу с changeTracking
-                scraped_data = await client.scrape_url(
-                    url,
-                    formats=['markdown', 'changeTracking']
+                # Скрейпим страницу с changeTracking с таймаутом
+                scraped_data = await asyncio.wait_for(
+                    client.scrape_url(
+                        url,
+                        formats=['markdown', 'changeTracking']
+                    ),
+                    timeout=45  # 45 секунд максимум на scrape
                 )
                 
                 # Извлекаем данные
@@ -255,7 +270,7 @@ class ChangeMonitor:
                     success = self.db.update_tracked_article(
                         article_id=article_id,
                         content=markdown_content,
-                        new_hash=content_hash,
+                        content_hash=content_hash,
                         change_status='changed'
                     )
                     
@@ -312,6 +327,19 @@ class ChangeMonitor:
                     self.logger.info(f"NEW page tracked: {url} - URL extraction skipped (first scan)")
                     result['extracted_urls'] = 0
                 
+        except asyncio.TimeoutError as e:
+            self.logger.error(f"Timeout scanning {url} after 45s")
+            # Принудительно закрыть сессию чтобы не зависало
+            if hasattr(self, 'firecrawl') and self.firecrawl:
+                try:
+                    await self.firecrawl.close()
+                    self.logger.info(f"Force closed Firecrawl session after timeout for {url}")
+                except Exception as close_error:
+                    self.logger.warning(f"Error closing Firecrawl session: {close_error}")
+            result.update({
+                'error': f'Timeout after 45s',
+                'status': 'error'
+            })
         except Exception as e:
             self.logger.error(f"Error scanning {url}: {e}")
             result.update({
@@ -661,19 +689,18 @@ class ChangeMonitor:
                     'message': 'No new URLs to export'
                 }
             
-            # Log each URL being exported
-            for url_data in new_urls[:10]:  # Log first 10 for visibility
-                domain = urlparse(url_data['article_url']).netloc if 'article_url' in url_data else 'unknown'
-                log_operation(
-                    'change_tracking_export_url',
-                    phase='change_tracking',
-                    message=f'📤 Exporting: {domain}',
-                    url=url_data.get('article_url', ''),
-                    success=True
-                )
-                time.sleep(0.5)  # Small delay for realistic export
+            self.logger.info(f"Found {len(new_urls)} URLs to export")
             
-            # Экспортируем в таблицу articles
+            # Логируем только начало экспорта
+            log_operation(
+                'change_tracking_export_start',
+                phase='change_tracking',
+                message=f'📤 Starting export of {len(new_urls)} URLs',
+                total_urls=len(new_urls),
+                success=True
+            )
+            
+            # Экспортируем в таблицу articles (логирование будет внутри)
             exported_count = self.db.export_urls_to_articles(new_urls)
             
             self.logger.info(f"Exported {exported_count} URLs to articles table")
@@ -740,8 +767,9 @@ class ChangeMonitor:
             self.logger.info("Getting changed articles from tracking database...")
             self.logger.info(f"Export limit parameter: {limit} (type: {type(limit)})")
             
-            # Используем самый простой подход без параметризованных запросов
-            self.logger.info("Using simple direct SQL to avoid datatype issues...")
+            # Получаем ссылку на Supabase client для прямых запросов
+            from core.db_config import DatabaseConfig
+            self.supabase = DatabaseConfig.get_database()
             
             try:
                 # Проверяем что limit корректный
@@ -750,53 +778,47 @@ class ChangeMonitor:
                     self.logger.warning(f"Invalid limit, using default: {limit}")
                 
                 # Получаем статьи по ID без content сначала
-                article_ids_query = """
-                    SELECT article_id FROM tracked_articles 
-                    WHERE change_detected = 1 AND exported_to_main = 0
-                    ORDER BY last_checked DESC
-                    LIMIT {}
-                """.format(limit)
-                
-                self.logger.info(f"Query: {article_ids_query}")
-                
-                with self.db.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(article_ids_query)
-                    article_ids = [row[0] for row in cursor.fetchall()]
+                # ИСПРАВЛЕНИЕ SQLite БАГ: Используем Supabase API (синхронный вызов)
+                try:
+                    # Supabase операция - синхронная, но быстрая
+                    response = self.supabase.client.table('tracked_articles')\
+                        .select('article_id')\
+                        .eq('change_detected', True)\
+                        .eq('exported_to_main', False)\
+                        .order('last_checked', desc=True)\
+                        .limit(limit)\
+                        .execute()
+                    
+                    article_ids = [row['article_id'] for row in response.data] if response.data else []
+                except Exception as e:
+                    self.logger.error(f"Error querying Supabase for article IDs: {e}")
+                    article_ids = []
                 
                 self.logger.info(f"Found {len(article_ids)} article IDs to export")
                 
-                # Теперь получаем данные для каждого ID по отдельности
+                # Теперь получаем данные для каждого ID через Supabase API
                 changed_articles = []
                 for article_id in article_ids:
                     try:
-                        with self.db.db.get_connection() as conn:
-                            cursor = conn.cursor()
-                            cursor.execute(f"""
-                                SELECT 
-                                    article_id, 
-                                    source_id, 
-                                    url, 
-                                    title, 
-                                    COALESCE(description, '') as description,
-                                    COALESCE(published_date, datetime('now')) as published_date,
-                                    COALESCE(content, '') as content
-                                FROM tracked_articles 
-                                WHERE article_id = '{article_id}'
-                            """)
-                            
-                            row = cursor.fetchone()
-                            if row:
-                                article_data = {
-                                    'article_id': row[0],
-                                    'source_id': row[1], 
-                                    'url': row[2],
-                                    'title': row[3],
-                                    'description': row[4],
-                                    'published_date': row[5],
-                                    'content': row[6]
-                                }
-                                changed_articles.append(article_data)
+                        # ИСПРАВЛЕНИЕ SQLite БАГ: Используем Supabase API вместо SQL cursor
+                        response = self.supabase.client.table('tracked_articles')\
+                            .select('article_id, source_id, url, title, description, published_date, content')\
+                            .eq('article_id', article_id)\
+                            .limit(1)\
+                            .execute()
+                        
+                        if response.data and len(response.data) > 0:
+                            row = response.data[0]
+                            article_data = {
+                                'article_id': row['article_id'],
+                                'source_id': row['source_id'], 
+                                'url': row['url'],
+                                'title': row['title'],
+                                'description': row.get('description', ''),
+                                'published_date': row.get('published_date', ''),
+                                'content': row.get('content', '')
+                            }
+                            changed_articles.append(article_data)
                                 
                     except Exception as single_error:
                         self.logger.warning(f"Failed to get data for article {article_id}: {single_error}")

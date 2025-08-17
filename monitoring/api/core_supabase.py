@@ -13,6 +13,7 @@ def get_articles_with_filters_supabase(
     search: Optional[str] = None,
     status: Optional[str] = None,
     source_id: Optional[str] = None,
+    article_type: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     page: int = 1,
@@ -51,6 +52,12 @@ def get_articles_with_filters_supabase(
         if source_id:
             query = query.eq('source_id', source_id)
         
+        if article_type:
+            if article_type == 'RSS':
+                query = query.eq('discovered_via', 'rss')
+            elif article_type == 'Blog':
+                query = query.eq('discovered_via', 'change_tracking')
+        
         if date_from:
             query = query.gte('published_date', date_from)
         
@@ -65,7 +72,7 @@ def get_articles_with_filters_supabase(
         offset = (page - 1) * limit
         
         # Apply pagination and ordering
-        query = query.order('published_date', desc=True).range(offset, offset + limit - 1)
+        query = query.order('created_at', desc=True).range(offset, offset + limit - 1)
         
         # Execute query
         result = query.execute()
@@ -106,7 +113,7 @@ def get_articles_with_filters_supabase(
                 "has_media": media_count > 0,
                 "media_count": media_count,
                 "source_name": source_names.get(article.get("source_id"), "Unknown"),
-                "article_type": "RSS"
+                "article_type": "Blog" if article.get("discovered_via") == "change_tracking" else "RSS"
             })
         
         result_dict = {
