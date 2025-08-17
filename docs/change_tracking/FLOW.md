@@ -1,9 +1,9 @@
 # Change Tracking System - Детальный Flow
 
-**Версия:** 3.1 (15 августа 2025)  
-**Статус:** Production Ready + Performance Optimized  
-**Основа:** Анализ кода из change_tracking/monitor.py и database.py  
-**Обновления:** Исправлены зависания, duplicate key errors, оптимизирована производительность
+**Версия:** 3.3 (17 августа 2025)  
+**Статус:** Production Ready + Timeout Protection via Process Supervisor  
+**Основа:** Анализ кода из change_tracking/monitor.py, database.py и process_supervisor.py  
+**Обновления:** MVP решение зависаний через Process Supervisor, упрощены таймауты
 
 ---
 
@@ -173,6 +173,36 @@ GROUP BY is_new, exported_to_articles;
 
 ---
 
+## 🛡️ Process Supervisor - Защита от зависаний (v3.3)
+
+### Новый компонент системы:
+**Файл:** `core/process_supervisor.py`  
+**Цель:** Изоляция источников и гарантия от зависаний
+
+### Как работает:
+1. **Каждый источник в отдельном процессе** - полная изоляция
+2. **Жёсткий таймаут 60 секунд** - subprocess.run(timeout=60)
+3. **SIGKILL при превышении** - принудительное завершение
+4. **Статистика** - successful/skipped/killed/errors
+
+### Использование:
+```python
+from core.process_supervisor import ProcessSupervisor
+
+supervisor = ProcessSupervisor(timeout_per_source=60)
+
+# Change Tracking с защитой от зависаний
+result = supervisor.run_change_tracking_source('https://example.com')
+# Гарантия: завершится за 60 секунд или будет убит
+```
+
+### Результаты:
+- **До:** Зависания до бесконечности
+- **После:** Максимум 60 секунд на источник
+- **Статистика:** 0 killed в тестах = всё работает быстро
+
+---
+
 ## ⚠️ Ключевые особенности и проблемы
 
 ### Особенности:
@@ -180,8 +210,14 @@ GROUP BY is_new, exported_to_articles;
 2. **Сравнение с базой** - только новые URL помечаются is_new=1
 3. **UNIQUE constraint** работает на уровне tracked_urls
 4. **Лимит 100** URL за экспорт
+5. **Process Supervisor** - защита от зависаний (NEW в v3.3)
 
-### Проблемы:
+### Решённые проблемы (v3.3):
+1. ✅ **Зависания** - Process Supervisor с таймаутом 60 сек
+2. ✅ **Retry усугубляет** - убраны retry (max_retries=1)
+3. ✅ **Конфликт таймаутов** - упрощена иерархия таймаутов
+
+### Оставшиеся проблемы:
 1. **articles НЕ имеет UNIQUE на url** - возможны дубли RSS vs tracking
 2. **Лимит 100** может потребовать несколько запусков для больших batches
 3. **Межисточниковые дубли** не отслеживаются

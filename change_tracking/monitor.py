@@ -94,13 +94,13 @@ class ChangeMonitor:
             clean_domain = clean_domain[4:]
         return clean_domain
     
-    async def scan_webpage(self, url: str, max_retries: int = 3) -> Dict[str, Any]:
+    async def scan_webpage(self, url: str, max_retries: int = 1) -> Dict[str, Any]:
         """
-        Сканирует веб-страницу и отслеживает изменения с retry механизмом
+        Сканирует веб-страницу и отслеживает изменения (упрощенная версия без retry)
         
         Args:
             url: URL веб-страницы для мониторинга
-            max_retries: Максимальное количество попыток при ошибках
+            max_retries: Максимальное количество попыток (по умолчанию 1 - без retry)
             
         Returns:
             Dict с результатами мониторинга
@@ -158,9 +158,9 @@ class ChangeMonitor:
                     )
                 return result
             
-            # Если не последняя попытка - ждем перед следующей
+            # Если не последняя попытка - ждем немного перед следующей (упрощенная версия)
             if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) * 5  # Exponential backoff: 5s, 10s, 20s
+                wait_time = 2  # Фиксированная задержка 2 секунды вместо exponential backoff
                 self.logger.warning(f"Retrying {url} in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(wait_time)
         
@@ -194,17 +194,16 @@ class ChangeMonitor:
         }
         
         try:
-            # Add realistic delay for each source scan
-            await asyncio.sleep(8)  # Each source takes 8-15 seconds to scan
+            # Убрана искусственная задержка для ускорения
             
             async with self.firecrawl as client:
-                # Скрейпим страницу с changeTracking с таймаутом
+                # Скрейпим страницу с changeTracking с уменьшенным таймаутом
                 scraped_data = await asyncio.wait_for(
                     client.scrape_url(
                         url,
                         formats=['markdown', 'changeTracking']
                     ),
-                    timeout=45  # 45 секунд максимум на scrape
+                    timeout=30  # Уменьшен таймаут до 30 секунд
                 )
                 
                 # Извлекаем данные
@@ -328,7 +327,7 @@ class ChangeMonitor:
                     result['extracted_urls'] = 0
                 
         except asyncio.TimeoutError as e:
-            self.logger.error(f"Timeout scanning {url} after 45s")
+            self.logger.error(f"Timeout scanning {url} after 30s")
             # Принудительно закрыть сессию чтобы не зависало
             if hasattr(self, 'firecrawl') and self.firecrawl:
                 try:
@@ -337,7 +336,7 @@ class ChangeMonitor:
                 except Exception as close_error:
                     self.logger.warning(f"Error closing Firecrawl session: {close_error}")
             result.update({
-                'error': f'Timeout after 45s',
+                'error': f'Timeout after 30s',
                 'status': 'error'
             })
         except Exception as e:

@@ -153,8 +153,8 @@ class ExtractRSSDiscovery:
                 f"Fetching RSS for {source_id}: {rss_url}, last_parsed: {last_parsed.isoformat()}"
             )
             
-            # Загружаем RSS
-            async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            # Загружаем RSS с уменьшенным таймаутом
+            async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=20)) as response:
                 if response.status != 200:
                     self.logger.warning(
                         f"RSS fetch failed for {source_id}: status {response.status}, url: {rss_url}"
@@ -163,8 +163,30 @@ class ExtractRSSDiscovery:
                 
                 content = await response.text()
             
-            # Парсим RSS
-            feed = feedparser.parse(content)
+            # Парсим RSS в отдельном потоке чтобы не блокировать (feedparser синхронный)
+            # Используем asyncio.to_thread для Python 3.9+ или run_in_executor для старых версий
+            try:
+                # Парсим RSS с таймаутом через asyncio
+                feed = await asyncio.wait_for(
+                    asyncio.to_thread(feedparser.parse, content),
+                    timeout=10  # 10 секунд максимум на парсинг
+                )
+            except asyncio.TimeoutError:
+                self.logger.error(f"RSS parsing timeout for {source_id} after 10s")
+                return source_id, []
+            except AttributeError:
+                # Fallback для Python < 3.9
+                import concurrent.futures
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    try:
+                        feed = await asyncio.wait_for(
+                            loop.run_in_executor(pool, feedparser.parse, content),
+                            timeout=10
+                        )
+                    except asyncio.TimeoutError:
+                        self.logger.error(f"RSS parsing timeout for {source_id} after 10s")
+                        return source_id, []
             
             if feed.bozo:
                 self.logger.warning(
@@ -233,8 +255,6 @@ class ExtractRSSDiscovery:
                 f"{len(articles)} new articles found, last_parsed: {last_parsed.isoformat()}"
             )
             
-        except asyncio.TimeoutError:
-            self.logger.error(f"RSS timeout for {source_id}: {rss_url}")
         except Exception as e:
             self.logger.error(
                 f"RSS error for {source_id}: {str(e)} (URL: {rss_url})"
