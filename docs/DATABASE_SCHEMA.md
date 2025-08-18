@@ -1,6 +1,6 @@
 # Схема базы данных AI News Parser
 
-**Обновлено**: 14 августа 2025 - **ТОЧНАЯ СХЕМА SUPABASE** (синхронизирована с реальными данными)
+**Обновлено**: 18 августа 2025 - **АКТУАЛЬНАЯ СХЕМА SUPABASE** (синхронизирована с реальными данными)
 
 ## 🚀 Обзор
 
@@ -8,7 +8,7 @@
 
 ### ☁️ Архитектура (Supabase PostgreSQL):
 - **Единая база данных** - `https://mtguynupyltlqiwhmilc.supabase.co`
-- **11 таблиц** - основные данные + мониторинг
+- **11 таблиц** - основные данные + мониторинг + change tracking
 - **UUID Primary Keys** - современная архитектура с автогенерацией
 - **JSONB поддержка** - структурированные метаданные
 - **Real-time возможности** - подписки на изменения данных
@@ -269,28 +269,28 @@ CREATE TABLE related_links (
 
 ---
 
-## 📈 МОНИТОРИНГ И АНАЛИТИКА (19 таблиц)
+## 📈 МОНИТОРИНГ И АНАЛИТИКА
 
-### Системные метрики
+### Системные метрики (реально существующие)
 
 #### `performance_metrics` - Метрики производительности
 ```sql
 CREATE TABLE performance_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     timestamp TIMESTAMP,
     metric_type TEXT,
     operation TEXT,
-    duration_ms INTEGER,
+    duration_ms REAL,
     success BOOLEAN,
     error_message TEXT,
-    details TEXT
+    details JSONB
 );
 ```
 
 #### `system_metrics` - Системные показатели
 ```sql
 CREATE TABLE system_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     timestamp TIMESTAMP,
     cpu_percent REAL,
     memory_percent REAL,
@@ -305,7 +305,7 @@ CREATE TABLE system_metrics (
 #### `memory_metrics` - Мониторинг памяти
 ```sql
 CREATE TABLE memory_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     timestamp TIMESTAMP,
     process_name TEXT,
     memory_mb REAL,
@@ -315,9 +315,25 @@ CREATE TABLE memory_metrics (
 );
 ```
 
-### API и стоимости
+#### `pipeline_operations` - Операции пайплайна
+```sql
+CREATE TABLE pipeline_operations (
+    id BIGINT PRIMARY KEY,
+    session_id BIGINT,
+    phase TEXT,
+    operation TEXT,
+    status TEXT,
+    details JSONB,
+    timestamp TIMESTAMP
+);
+```
 
-#### `llm_usage_tracking` - Отслеживание LLM API
+### API и стоимости (планируемые, но не существующие)
+
+**Примечание**: Таблицы ниже описаны в документации, но не созданы в базе данных.
+Сейчас логирование API происходит в файл `operations.jsonl`.
+
+#### `llm_usage_tracking` - Отслеживание LLM API (НЕ СУЩЕСТВУЕТ)
 ```sql
 CREATE TABLE llm_usage_tracking (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -381,202 +397,15 @@ CREATE TABLE extract_api_errors (
 );
 ```
 
-### Аналитика источников
 
-#### `source_metrics` - Метрики источников
-```sql
-CREATE TABLE source_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    source_id TEXT,
-    articles_found INTEGER,
-    articles_processed INTEGER,
-    fetch_duration_ms REAL,
-    parse_duration_ms REAL,
-    error_count INTEGER,
-    success_rate REAL
-);
-```
-
-#### `rss_feed_metrics` - Метрики RSS лент
-```sql
-CREATE TABLE rss_feed_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    source_id TEXT,
-    feed_url TEXT,
-    fetch_time_ms REAL,
-    items_found INTEGER,
-    new_items INTEGER,
-    parse_errors INTEGER,
-    http_status_code INTEGER,
-    error_message TEXT,
-    feed_status TEXT
-);
-```
-
-#### `article_stats` - Статистика статей
-```sql
-CREATE TABLE article_stats (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    total_articles INTEGER,
-    pending_parsing INTEGER,
-    parsed_articles INTEGER,
-    failed_parsing INTEGER,
-    pending_translation INTEGER,
-    translated_articles INTEGER,
-    published_to_wp INTEGER,
-    articles_with_media INTEGER
-);
-```
-
-### Операции и сессии
-
-#### `pipeline_operations` - Операции пайплайна
-```sql
-CREATE TABLE pipeline_operations (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    session_id INTEGER,
-    phase TEXT,
-    operation TEXT,
-    status TEXT,
-    details TEXT,
-    timestamp TIMESTAMP
-);
-```
-
-#### `session_management` - Управление сессиями
-```sql
-CREATE TABLE session_management (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    session_id TEXT UNIQUE,
-    session_type TEXT,
-    started_at TIMESTAMP,
-    ended_at TIMESTAMP,
-    status TEXT,
-    articles_processed INTEGER,
-    errors_count INTEGER,
-    metadata JSONB
-);
-```
-
-#### `process_monitoring` - Мониторинг процессов
-```sql
-CREATE TABLE process_monitoring (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    process_name TEXT,
-    pid INTEGER,
-    status TEXT,
-    cpu_usage REAL,
-    memory_usage_mb REAL,
-    uptime_seconds INTEGER,
-    last_heartbeat TIMESTAMP
-);
-```
-
-#### `wordpress_sync_status` - Статус синхронизации WordPress
-```sql
-CREATE TABLE wordpress_sync_status (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    sync_type TEXT,
-    records_synced INTEGER,
-    records_failed INTEGER,
-    sync_duration_ms REAL,
-    error_details TEXT,
-    success BOOLEAN
-);
-```
-
-### Логи и ошибки
-
-#### `error_logs` - Централизованные логи ошибок
-```sql
-CREATE TABLE error_logs (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    error_level TEXT,
-    error_type TEXT,
-    error_message TEXT,
-    stack_trace TEXT,
-    context TEXT,
-    resolved BOOLEAN,
-    resolved_at TIMESTAMP,
-    resolution_notes TEXT
-);
-```
-
-#### `audit_logs` - Аудит действий
-```sql  
-CREATE TABLE audit_logs (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    user_id TEXT,
-    action TEXT,
-    entity_type TEXT,
-    entity_id TEXT,
-    old_value TEXT,
-    new_value TEXT,
-    ip_address TEXT,
-    user_agent TEXT
-);
-```
-
-### Алерты и уведомления
-
-#### `system_alerts` - Системные алерты
-```sql
-CREATE TABLE system_alerts (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    alert_level TEXT,
-    alert_type TEXT,
-    message TEXT,
-    details TEXT,
-    acknowledged BOOLEAN,
-    acknowledged_at TIMESTAMP,
-    acknowledged_by TEXT
-);
-```
-
-#### `memory_alerts` - Алерты памяти
-```sql
-CREATE TABLE memory_alerts (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    alert_type TEXT,
-    memory_mb REAL,
-    threshold_mb REAL,
-    process_name TEXT,
-    action_taken TEXT,
-    resolved BOOLEAN,
-    resolved_at TIMESTAMP
-);
-```
-
-#### `data_quality_metrics` - Метрики качества данных
-```sql
-CREATE TABLE data_quality_metrics (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    timestamp TIMESTAMP,
-    table_name TEXT,
-    total_records INTEGER,
-    valid_records INTEGER,
-    invalid_records INTEGER,
-    validation_errors TEXT,
-    data_completeness REAL
-);
-```
 
 ---
 
-## 🧪 ЭКСПЕРИМЕНТАЛЬНЫЕ ТАБЛИЦЫ
+## 🧪 ПЛАНИРУЕМЫЕ ЭКСПЕРИМЕНТАЛЬНЫЕ ТАБЛИЦЫ (не существуют)
 
 ### Context Enrichment Experiments  
 
-#### `context_experiments` - ML эксперименты с контекстом
+#### `context_experiments` - ML эксперименты с контекстом (ПЛАНИРУЕТСЯ)
 ```sql
 CREATE TABLE context_experiments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -604,7 +433,7 @@ CREATE TABLE context_experiments (
 - `idx_context_experiments_status` - INDEX на `status`  
 - `idx_context_experiments_created_at` - INDEX на `created_at`
 
-#### `context_chunks` - Chunked контент для эмбеддингов
+#### `context_chunks` - Chunked контент для эмбеддингов (ПЛАНИРУЕТСЯ)
 ```sql
 CREATE TABLE context_chunks (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -631,7 +460,7 @@ CREATE TABLE context_chunks (
 - `idx_context_chunks_selected` - INDEX на `selected_for_context`
 - `idx_context_chunks_similarity` - INDEX на `similarity_score`
 
-#### `migration_test` - Тестовая таблица миграции
+#### `migration_test` - Тестовая таблица миграции (НЕ СУЩЕСТВУЕТ)
 ```sql
 CREATE TABLE migration_test (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -660,44 +489,18 @@ Configuration:
 └── global_config - Системные настройки
 ```
 
-### Мониторинг и аналитика
+### Мониторинг и аналитика (реально существующие)
 ```
 Performance & System:
 ├── performance_metrics     # Метрики производительности
 ├── system_metrics          # Общие системные метрики
 ├── memory_metrics          # Мониторинг памяти
-├── process_monitoring      # Мониторинг процессов
-└── session_management      # Управление сессиями
+└── pipeline_operations     # Операции пайплайна
 
-Source Analytics:
-├── source_metrics          # Аналитика по источникам  
-├── rss_feed_metrics        # Метрики RSS лент
-└── article_stats           # Статистика по статьям
-
-API & Costs:
-├── llm_usage_tracking      # LLM API usage
-├── api_usage_metrics       # Общие API метрики
-├── extract_api_metrics     # Firecrawl API метрики
-└── extract_api_errors      # Ошибки Firecrawl API
-
-Operations & Logs:
-├── pipeline_operations     # Операции пайплайна
-├── error_logs              # Централизованные логи
-├── audit_logs              # Аудит действий
-└── wordpress_sync_status   # Синхронизация WordPress
-
-Alerts & Quality:
-├── system_alerts           # Системные алерты
-├── memory_alerts           # Алерты памяти
-└── data_quality_metrics    # Метрики качества данных
+Логирование:
+└── operations.jsonl        # Централизованные логи (файл, не таблица)
 ```
 
-### Экспериментальные системы
-```
-Context Enrichment:
-├── context_experiments (1) -----> (N) context_chunks
-└── Используют векторные embeddings и similarity search
-```
 
 ---
 
@@ -941,10 +744,10 @@ if article.is_deleted:  # Понятно: True/False
 
 #### 6. 11 таблиц - оптимальная структура
 **Это НЕ проблема** - оптимизированная функциональность:
-- ✅ Основные данные (5 таблиц: articles, sources, media_files, wordpress_articles, tracked_articles)
-- ✅ Мониторинг (3 таблицы: system_metrics, performance_metrics, memory_metrics)
-- ✅ Конфигурация и операции (3 таблицы: global_config, pipeline_operations, tracked_urls)
-- ✅ Система алертов и качества данных
+- ✅ Основные данные (4 таблицы: articles, sources, media_files, wordpress_articles)
+- ✅ Change Tracking (2 таблицы: tracked_articles, tracked_urls)
+- ✅ Мониторинг (4 таблицы: system_metrics, performance_metrics, memory_metrics, pipeline_operations)
+- ✅ Конфигурация (1 таблица: global_config)
 
 #### 7. Legacy integer fields (`id_integer`)
 **Это НЕ проблема** - обратная совместимость:
@@ -1323,14 +1126,14 @@ ORDER BY last_checked DESC;
 
 ## 📊 ИСТОРИЯ ИЗМЕНЕНИЙ
 
-### 14 августа 2025 - ПОЛНАЯ ДОКУМЕНТАЦИЯ И ПЛАН ДОРАБОТКИ
+### 18 августа 2025 - АКТУАЛИЗАЦИЯ СХЕМЫ
 
-#### ✅ Анализ и документирование
-- **Полный аудит структуры** - Все 11 таблиц документированы с точными схемами
-- **Реальные типы данных** - UUID, INTEGER, TEXT, JSONB, TIMESTAMP по факту
-- **Фактические индексы** - 47 индексов включая векторные (HNSW, GIN)
-- **Экспериментальные таблицы** - context_experiments с embeddings для ML
-- **Расширенный мониторинг** - 3 таблицы для метрик системы, производительности и памяти
+#### ✅ Очистка и актуализация
+- **Удалены лишние таблицы** - rss_errors и tracking_errors (дублировали логирование)
+- **Реальная структура** - 11 таблиц фактически существующих в Supabase
+- **Исправлена документация** - убраны несуществующие таблицы мониторинга
+- **Фактические типы данных** - UUID, BIGINT, TEXT, JSONB, TIMESTAMP по факту
+- **Реальный мониторинг** - 4 таблицы для метрик и операций
 
 #### 🔍 Категоризация проблем  
 - **🔴 Критичные проблемы**: Отсутствующие индексы, TEXT вместо JSONB
@@ -1349,7 +1152,7 @@ ORDER BY last_checked DESC;
 - **Критические сценарии** - RSS Discovery, Dashboard, Publishing pipeline
 
 ### Основные выводы анализа:
-- **UUID и 30 таблиц** - НЕ проблемы, а современные решения
+- **UUID и 11 таблиц** - оптимальная структура для проекта
 - **Отсутствующие индексы** - критичны для масштабирования  
 - **TEXT JSON поля** - блокируют функциональность PostgreSQL
 - **Система готова к оптимизации** - без архитектурных переделок
@@ -1357,4 +1160,4 @@ ORDER BY last_checked DESC;
 ---
 
 **Документация синхронизирована с реальной структурой Supabase** ✅  
-**Последнее обновление**: 14 августа 2025
+**Последнее обновление**: 18 августа 2025

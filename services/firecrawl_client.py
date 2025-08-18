@@ -89,7 +89,7 @@ class FirecrawlClient:
                 timeout=aiohttp.ClientTimeout(
                     total=40,           # Reduced to 40s (less than asyncio timeout 45s)
                     sock_connect=5,     # 5 seconds to establish connection (faster detection)
-                    sock_read=10        # 10 seconds to read data (faster timeout on stuck connections)
+                    sock_read=30        # 30 seconds to read data (increased for large pages)
                 ),
                 headers={'Authorization': f'Bearer {self.api_key}'}
             )
