@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import time
 
-from app_logging import get_logger
+from app_logging import get_logger, log_error
 from core.db_config import DatabaseConfig
 
 
@@ -53,12 +53,29 @@ class ChangeTrackingDB:
         except Exception as e:
             # ИСПРАВЛЕНИЕ FK BUG: Специальная обработка Foreign Key ошибок
             if 'foreign key constraint' in str(e).lower():
-                self.logger.error(f"❌ Source '{article_data['source_id']}' not found in sources table - skipping article")
+                error_msg = f"Source '{article_data['source_id']}' not found in sources table - skipping article"
+                self.logger.error(f"❌ {error_msg}")
                 self.logger.error(f"   Article URL: {article_data['url']}")
                 self.logger.error(f"   Please add source '{article_data['source_id']}' to sources table or fix source mapping")
+                
+                # Логируем в errors.jsonl
+                log_error('foreign_key_constraint', error_msg,
+                         source_id=article_data['source_id'],
+                         article_url=article_data['url'],
+                         article_id=article_id,
+                         module='change_tracking_database')
                 return False  # Мягкий отказ вместо зависания
             else:
-                self.logger.error(f"Error creating tracked article {article_id}: {e}")
+                error_msg = f"Error creating tracked article {article_id}"
+                self.logger.error(f"{error_msg}: {e}")
+                
+                # Логируем в errors.jsonl
+                log_error('tracked_article_creation_failed', error_msg,
+                         article_id=article_id,
+                         source_id=source_id,
+                         url=url,
+                         error_type=type(e).__name__,
+                         module='change_tracking_database')
                 return False
     
     def get_tracked_article_by_url(self, url: str) -> Optional[Dict[str, Any]]:
@@ -75,7 +92,14 @@ class ChangeTrackingDB:
             return None
                 
         except Exception as e:
-            self.logger.error(f"Error getting tracked article by URL {url}: {e}")
+            error_msg = f"Error getting tracked article by URL"
+            self.logger.error(f"{error_msg} {url}: {e}")
+            
+            # Логируем в errors.jsonl
+            log_error('tracked_article_fetch_failed', error_msg,
+                     url=url[:200],
+                     error_type=type(e).__name__,
+                     module='change_tracking_database')
             return None
     
     def update_tracked_article(
@@ -325,7 +349,15 @@ class ChangeTrackingDB:
                         baseline_count += 1
                         
                 except Exception as e:
-                    self.logger.error(f"Error adding baseline URL {url_data.get('article_url', 'unknown')}: {e}")
+                    error_msg = f"Error adding baseline URL {url_data.get('article_url', 'unknown')[:100]}"
+                    self.logger.error(f"{error_msg}: {e}")
+                    
+                    # Логируем в errors.jsonl
+                    log_error('baseline_url_add_failed', error_msg,
+                             source_page_url=source_page_url,
+                             article_url=url_data.get('article_url', 'unknown')[:200],
+                             error_type=type(e).__name__,
+                             module='change_tracking_database')
                     continue
                         
             if baseline_count > 0:
@@ -336,7 +368,15 @@ class ChangeTrackingDB:
             return baseline_count
             
         except Exception as e:
-            self.logger.error(f"Error storing baseline URLs: {e}")
+            error_msg = f"Error storing baseline URLs"
+            self.logger.error(f"{error_msg}: {e}")
+            
+            # Логируем в errors.jsonl
+            log_error('baseline_urls_store_failed', error_msg,
+                     source_page_url=source_page_url,
+                     urls_count=len(urls_data),
+                     error_type=type(e).__name__,
+                     module='change_tracking_database')
             return 0
     
     def add_tracked_urls(self, urls_data: List[Dict[str, Any]]) -> int:
@@ -587,7 +627,16 @@ class ChangeTrackingDB:
                         failed_count += 1
                         
                 except Exception as e:
-                    self.logger.error(f"Failed to insert article {article_url}: {e}")
+                    error_msg = f"Failed to insert article"
+                    self.logger.error(f"{error_msg} {article_url}: {e}")
+                    
+                    # Логируем в errors.jsonl
+                    log_error('article_export_failed', error_msg,
+                             article_url=article_url[:200],
+                             article_id=article_id,
+                             source_id=source_id,
+                             error_type=type(e).__name__,
+                             module='change_tracking_database')
                     failed_count += 1
                     continue
                     

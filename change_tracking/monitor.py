@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 import time
 
-from app_logging import get_logger
+from app_logging import get_logger, log_error, log_operation
 from services.firecrawl_client import FirecrawlClient
 from .database import ChangeTrackingDB
 from .url_extractor import URLExtractor
@@ -165,7 +165,16 @@ class ChangeMonitor:
                 await asyncio.sleep(wait_time)
         
         # Если все попытки неудачны
-        self.logger.error(f"Failed to scan {url} after {max_retries} attempts")
+        error_msg = f"Failed to scan {url} after {max_retries} attempts"
+        self.logger.error(error_msg)
+        
+        # Логируем в errors.jsonl
+        log_error('tracking_scan_failed', error_msg,
+                 source_id=source_id,
+                 url=url,
+                 module='monitor',
+                 max_retries=max_retries)
+        
         log_operation(
             'change_tracking_source_error',
             phase='change_tracking',
@@ -327,7 +336,15 @@ class ChangeMonitor:
                     result['extracted_urls'] = 0
                 
         except asyncio.TimeoutError as e:
-            self.logger.error(f"Timeout scanning {url} after 30s")
+            error_msg = f"Timeout scanning {url} after 30s"
+            self.logger.error(error_msg)
+            
+            # Логируем таймаут в errors.jsonl
+            log_error('tracking_timeout', error_msg,
+                     url=url,
+                     module='monitor',
+                     timeout_seconds=30)
+            
             # Принудительно закрыть сессию чтобы не зависало
             if hasattr(self, 'firecrawl') and self.firecrawl:
                 try:

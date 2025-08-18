@@ -18,7 +18,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.db_config import DatabaseConfig
-from app_logging import get_logger
+from app_logging import get_logger, log_error
 
 # Load environment variables
 load_dotenv()
@@ -156,9 +156,15 @@ class ExtractRSSDiscovery:
             # Загружаем RSS с уменьшенным таймаутом
             async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=20)) as response:
                 if response.status != 200:
-                    self.logger.warning(
-                        f"RSS fetch failed for {source_id}: status {response.status}, url: {rss_url}"
-                    )
+                    error_msg = f"RSS fetch failed for {source_id}: status {response.status}"
+                    self.logger.warning(f"{error_msg}, url: {rss_url}")
+                    
+                    # Логируем в errors.jsonl
+                    log_error('rss_fetch_failed', error_msg,
+                             source_id=source_id,
+                             url=rss_url,
+                             status_code=response.status,
+                             module='rss_discovery')
                     return source_id, []
                 
                 content = await response.text()
@@ -172,7 +178,15 @@ class ExtractRSSDiscovery:
                     timeout=10  # 10 секунд максимум на парсинг
                 )
             except asyncio.TimeoutError:
-                self.logger.error(f"RSS parsing timeout for {source_id} after 10s")
+                error_msg = f"RSS parsing timeout for {source_id} after 10s"
+                self.logger.error(error_msg)
+                
+                # Логируем в errors.jsonl
+                log_error('rss_parsing_timeout', error_msg,
+                         source_id=source_id,
+                         url=rss_url,
+                         timeout_seconds=10,
+                         module='rss_discovery')
                 return source_id, []
             except AttributeError:
                 # Fallback для Python < 3.9
@@ -185,7 +199,15 @@ class ExtractRSSDiscovery:
                             timeout=10
                         )
                     except asyncio.TimeoutError:
-                        self.logger.error(f"RSS parsing timeout for {source_id} after 10s")
+                        error_msg = f"RSS parsing timeout for {source_id} after 10s"
+                        self.logger.error(error_msg)
+                        
+                        # Логируем в errors.jsonl
+                        log_error('rss_parsing_timeout', error_msg,
+                                 source_id=source_id,
+                                 url=rss_url,
+                                 timeout_seconds=10,
+                                 module='rss_discovery')
                         return source_id, []
             
             if feed.bozo:
@@ -256,9 +278,15 @@ class ExtractRSSDiscovery:
             )
             
         except Exception as e:
-            self.logger.error(
-                f"RSS error for {source_id}: {str(e)} (URL: {rss_url})"
-            )
+            error_msg = f"RSS error for {source_id}: {str(e)}"
+            self.logger.error(f"{error_msg} (URL: {rss_url})")
+            
+            # Логируем в errors.jsonl
+            log_error('rss_fetch_error', error_msg,
+                     source_id=source_id,
+                     url=rss_url,
+                     error_type=type(e).__name__,
+                     module='rss_discovery')
         
         return source_id, articles
     
@@ -386,9 +414,16 @@ class ExtractRSSDiscovery:
                                 # insert_article возвращает None если статья уже существует
                                 self.logger.debug(f"Article not saved (duplicate?): {article['url'][:100]}")
                         except Exception as e:
-                            self.logger.error(
-                                f"Error saving article: {str(e)} (URL: {article['url'][:100]})"
-                            )
+                            error_msg = f"Error saving article: {str(e)}"
+                            self.logger.error(f"{error_msg} (URL: {article['url'][:100]})")
+                            
+                            # Логируем в errors.jsonl
+                            log_error('article_save_failed', error_msg,
+                                     source_id=source_id,
+                                     article_url=article['url'][:200],
+                                     article_title=article.get('title', 'Unknown'),
+                                     error_type=type(e).__name__,
+                                     module='rss_discovery')
                             stats['errors'] += 1
                     
                     # Note: Global last_parsed is now managed centrally, not per-source
