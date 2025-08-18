@@ -5,38 +5,19 @@ Comprehensive error tracking and handling system for RSS Discovery and Change Tr
 
 ## Error Logging Infrastructure
 
-### 1. File-based Logging
-- **Location**: `logs/errors.jsonl` and `logs/operations.jsonl`
-- **Format**: JSONL (JSON Lines) for easy parsing
-- **Rotation**: Automatic when files exceed 50MB
-- **Cleanup**: Automatic deletion after 7 days
+### Централизованное логирование в файлы
+- **Основные файлы**: 
+  - `logs/errors.jsonl` - все ошибки системы
+  - `logs/operations.jsonl` - операции и метрики
+- **Формат**: JSONL (JSON Lines) для легкого парсинга
+- **Ротация**: Автоматическая при превышении 50MB
+- **Очистка**: Автоматическое удаление через 7 дней
 
-### 2. Database Logging (Supabase)
+### Двухуровневая система логирования
+1. **logger.error()** - для консоли и реального времени
+2. **log_error()** - для централизованного хранения в JSONL
 
-#### RSS Errors Table (`rss_errors`)
-```sql
-CREATE TABLE rss_errors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_id VARCHAR(100) NOT NULL,
-    error_type VARCHAR(50) NOT NULL,
-    error_message TEXT,
-    url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-```
-
-#### Tracking Errors Table (`tracking_errors`)
-```sql
-CREATE TABLE tracking_errors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_id VARCHAR(100) NOT NULL,
-    error_type VARCHAR(50) NOT NULL,
-    error_message TEXT,
-    url TEXT,
-    module VARCHAR(50),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-```
+**Важно**: Для критических ошибок используются ОБА метода!
 
 ## Error Types
 
@@ -101,43 +82,25 @@ await asyncio.sleep(wait_time)
 
 ### Viewing Errors
 
-#### File Logs
+#### Просмотр логов из файлов
 ```bash
-# Recent RSS errors
+# Последние RSS ошибки
 grep "rss_" logs/errors.jsonl | tail -20
 
-# Recent tracking errors  
+# Последние tracking ошибки  
 grep "tracking_" logs/errors.jsonl | tail -20
 
-# All errors in last hour
+# Все ошибки за последний час
 tail -100 logs/errors.jsonl | jq '.timestamp' | sort
-```
 
-#### Database Queries
-```sql
--- Top error sources (RSS)
-SELECT source_id, COUNT(*) as error_count 
-FROM rss_errors 
-WHERE created_at > NOW() - INTERVAL '24 hours'
-GROUP BY source_id 
-ORDER BY error_count DESC;
+# Подсчет ошибок по типам
+cat logs/errors.jsonl | jq '.error_type' | sort | uniq -c | sort -rn
 
--- Tracking errors by module
-SELECT module, error_type, COUNT(*) as count
-FROM tracking_errors
-WHERE created_at > NOW() - INTERVAL '24 hours'
-GROUP BY module, error_type
-ORDER BY count DESC;
+# Ошибки по модулям
+cat logs/errors.jsonl | jq '.module' | sort | uniq -c | sort -rn
 
--- Sources with persistent issues
-SELECT source_id, 
-       COUNT(*) as total_errors,
-       MAX(created_at) as last_error
-FROM tracking_errors
-WHERE created_at > NOW() - INTERVAL '7 days'
-GROUP BY source_id
-HAVING COUNT(*) > 10
-ORDER BY total_errors DESC;
+# Топ источников с ошибками
+cat logs/errors.jsonl | jq '.source_id' | sort | uniq -c | sort -rn | head -10
 ```
 
 ## Auto-cleanup
@@ -145,11 +108,10 @@ ORDER BY total_errors DESC;
 ### Script Location
 `scripts/clean_old_logs.sh`
 
-### What it does:
-1. Deletes file logs older than 7 days
-2. Removes Supabase error records older than 7 days
-3. Rotates large log files (>50MB)
-4. Reports statistics after cleanup
+### Что делает скрипт:
+1. Удаляет файлы логов старше 7 дней
+2. Ротирует большие файлы логов (>50MB)
+3. Показывает статистику после очистки
 
 ### Manual Run
 ```bash
@@ -185,12 +147,12 @@ crontab -e
 - ABB Robotics - Geographic restrictions
 - Stability AI - Rate limiting
 
-### 4. Database Connection Issues
-**Symptoms**: "Failed to save to Supabase" messages
-**Check**:
-- Supabase service status
-- API key validity
-- Network connectivity
+### 4. Проблемы с логированием
+**Симптомы**: Ошибки не появляются в errors.jsonl
+**Проверить**:
+- Импортирован ли log_error в модуле
+- Вызывается ли log_error после logger.error
+- Права доступа к папке logs/
 
 ## Monitoring Dashboard Integration
 

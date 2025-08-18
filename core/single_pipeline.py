@@ -205,6 +205,12 @@ class SingleArticlePipeline:
                 
         except Exception as e:
             logger.error(f"❌ Критическая ошибка при обработке {article_id}: {e}")
+            # Логируем критическую ошибку в JSONL для анализа
+            from app_logging import log_error
+            log_error('pipeline_critical_error', str(e),
+                     article_id=article_id,
+                     phase='processing',
+                     module='single_pipeline')
             result['error'] = str(e)
         
         finally:
@@ -258,6 +264,11 @@ class SingleArticlePipeline:
                     else:
                         error_msg = result.get('error', 'Unknown parsing error')
                         logger.error(f"❌ Parsing failed: {error_msg}")
+                        # Логируем ошибку парсинга в JSONL
+                        log_error('content_parsing_failed', error_msg,
+                                 article_id=article['article_id'],
+                                 url=article.get('url'),
+                                 module='single_pipeline')
                         log_operation(f'❌ Парсинг неудачен: {error_msg}',
                             phase='content_parsing', 
                             success=False,
@@ -561,6 +572,11 @@ class SingleArticlePipeline:
         except Exception as e:
             error_msg = f"WordPress publishing failed: {e}"
             logger.error(error_msg)
+            # Логируем ошибку публикации в JSONL
+            from app_logging import log_error
+            log_error('wordpress_publishing_failed', str(e),
+                     article_id=article['article_id'],
+                     module='single_pipeline')
             return {'success': False, 'error': error_msg}
     
     async def run_pipeline(self, continuous_mode: bool = False, max_articles: Optional[int] = None, delay_between: int = 5) -> Dict[str, Any]:

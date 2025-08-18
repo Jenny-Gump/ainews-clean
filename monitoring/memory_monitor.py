@@ -15,6 +15,9 @@ from typing import Dict, List, Callable, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 
+# Импортируем log_error для централизованного логирования
+from app_logging import log_error
+
 
 class MemoryAlertLevel(Enum):
     """Уровни тревоги по памяти"""
@@ -458,6 +461,10 @@ class SystemMemoryMonitor:
             
         except Exception as e:
             self.logger.error(f"Error saving memory metrics: {e}")
+            # Логируем в централизованное хранилище для анализа
+            log_error('memory_metrics_save_failed', str(e),
+                     operation='save_memory_metrics',
+                     module='memory_monitor')
     
     def _save_alert_to_db(self, alert_data: Dict[str, Any]):
         """Сохранение алерта в БД"""

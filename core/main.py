@@ -21,7 +21,7 @@ load_dotenv()
 from core.db_config import DatabaseConfig
 from core.config import Config
 from core.single_pipeline import SingleArticlePipeline
-from app_logging import configure_logging, get_logger, LogContext, log_operation
+from app_logging import configure_logging, get_logger, LogContext, log_operation, log_error
 from services.rss_discovery import ExtractRSSDiscovery
 from change_tracking import ChangeMonitor
 
@@ -297,6 +297,10 @@ async def run_continuous_pipeline(max_articles=None, delay_between=5):
             )
         except Exception as e:
             logger.error(f"❌ Ошибка в пайплайне: {e}")
+            # Логируем критическую ошибку пайплайна
+            log_error('pipeline_fatal_error', str(e),
+                     mode='continuous' if continuous else 'single',
+                     module='main')
             result = {'processed_count': 0, 'success_count': 0, 'error_count': 1, 'wordpress_published': 0, 'duration_seconds': 0}
         
         # Выводим финальную статистику

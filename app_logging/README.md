@@ -273,18 +273,23 @@ with open('logs/operations.jsonl', 'r') as f:
 
 ## Coverage Status
 
-| Service | Coverage | Status |
-|---------|----------|--------|
-| wordpress_publisher.py | 100% | ✅ Full LLM tracking |
-| content_parser.py | 100% | ✅ DeepSeek operations logged |
-| media_processor.py | 100% | ✅ Download & batch operations |
-| news_discovery.py | 100% | ✅ Crawl & discovery tracking |
-| database.py | 90% | ✅ Performance & health checks |
-| firecrawl_client.py | 100% | ✅ All API calls tracked |
-| change_tracking/monitor.py | 100% | ✅ All scan operations logged |
-| change_tracking/url_extractor.py | 100% | ✅ URL extraction tracked |
-| rss_discovery.py | 100% | ✅ RSS source monitoring |
-| single_pipeline.py | 100% | ✅ Pipeline phases tracked |
+### ✅ Full Coverage (both logger.* and log_error)
+| Module | Console | Centralized | Status |
+|---------|---------|-------------|--------|
+| services/rss_discovery.py | ✅ | ✅ (5 errors) | ✅ Образцовый |
+| change_tracking/monitor.py | ✅ | ✅ (2 errors) | ✅ Образцовый |
+| change_tracking/database.py | ✅ | ✅ (6 errors) | ✅ Образцовый |
+| change_tracking/url_extractor.py | ✅ | ✅ (operations) | ✅ Complete |
+
+### ⚠️ Partial Coverage (console only, missing log_error)
+| Module | Console | Centralized | Missing |
+|---------|---------|-------------|---------|
+| core/single_pipeline.py | ✅ | ✅ (3 errors) | ✅ Fixed |
+| core/main.py | ✅ | ✅ (1 error) | ✅ Fixed |
+| monitoring/memory_monitor.py | ✅ | ✅ (1 error) | ✅ Fixed |
+| services/content_parser.py | ✅ | ❌ | Critical errors |
+| services/media_processor.py | ✅ | ❌ | Download failures |
+| services/wordpress_publisher.py | ✅ | ❌ | Publishing errors |
 
 ## Change Tracking Operations
 
