@@ -1,20 +1,21 @@
 # Change Tracking System Documentation
 
-**Версия**: 3.3  
-**Статус**: Production Ready (100% источников работают) **+ SUPABASE + БЕЗ ЗАВИСАНИЙ ГАРАНТИРОВАНО**  
-**Последнее обновление**: 17 августа 2025 - **MVP РЕШЕНИЕ ПРОБЛЕМЫ ЗАВИСАНИЙ**
+**Версия**: 4.0  
+**Статус**: Production Ready (100% источников работают) **+ ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА**  
+**Последнее обновление**: 19 августа 2025 - **ПОЛНОЕ ЛОГИРОВАНИЕ И КОНТРОЛЬ**
 
 ## 📋 Обзор
 
 Change Tracking System — это модульная система для отслеживания изменений на веб-страницах новостных источников. Система извлекает URL статей из markdown-контента, полученного через Firecrawl changeTracking API, и сохраняет их в **облачной Supabase базе данных** для последующей обработки и интеграции с основным пайплайном.
 
-## 🚀 **НОВОЕ В ВЕРСИИ 3.0**: Supabase Migration Complete
+## 🚀 **НОВОЕ В ВЕРСИИ 4.0**: Последовательная обработка с полным контролем
 
-**✅ Полностью мигрировано на Supabase Cloud Database:**
-- **SQLite** → **Supabase PostgreSQL** 
-- **Локальная БД** → **Облачная инфраструктура**
-- **Изолированная система** → **Единая экосистема с основным пайплайном**
-- **Manual scaling** → **Auto-scaling cloud database**
+**✅ Последовательная обработка источников (v4.0):**
+- **Батчи** → **Последовательный цикл** (один источник за раз)
+- **Сложная логика** → **Простой for loop с try/finally**
+- **Потеря логов** → **Гарантированное логирование каждого шага**
+- **Без прогресса** → **Прогресс [1/50] для каждого источника**
+- **Задержки sleep()** → **Убраны все искусственные задержки**
 
 ### 🎯 Основные возможности
 - **47 активных источников** (100% success rate)
@@ -22,7 +23,7 @@ Change Tracking System — это модульная система для от�
 - **Автоматическое обнаружение** новых статей и изменений
 - **Интеллектуальная обработка** различных форматов markdown
 - **☁️ Supabase Cloud Database** для масштабируемости и надежности
-- **Батч-обработка** для эффективности
+- **Последовательная обработка** для полного контроля
 - **🔄 Real-time интеграция** с основным пайплайном
 - **📊 Cloud monitoring** через Supabase Dashboard
 
@@ -64,8 +65,11 @@ change_tracking/
 ```bash
 cd "/Users/skynet/Desktop/AI DEV/ainews-clean"
 
-# Сканировать источники на изменения (Supabase)
-python core/main.py --change-tracking --scan --limit 5
+# Сканировать источники последовательно (рекомендуется)
+python core/main.py --change-tracking --scan --sequential --limit 5
+
+# Старый батчевый режим (deprecated)
+python core/main.py --change-tracking --scan --batch-size 5 --limit 5
 
 # Просмотр статистики (Supabase)  
 python core/main.py --change-tracking --tracking-stats
@@ -125,6 +129,30 @@ print(f'🔄 Recent changes: {len(stats[\"recent_changes\"])}')
 - **Успех rate**: 100% источников работают
 - **Среднее время сканирования**: ~3 сек/источник
 - **Хранение**: ☁️ **Supabase Cloud Database** (tracked_articles + tracked_urls)
+
+## 🔄 Режимы обработки (v4.0)
+
+### Последовательная обработка (рекомендуется)
+```python
+# Новый метод - полный контроль и логирование
+async def scan_sources_sequential():
+    for i, url in enumerate(sources, 1):
+        log_operation(f'[{i}/{total}] 🔍 Scanning: {domain}')
+        try:
+            result = await scan_webpage(url)
+            log_operation(f'[{i}/{total}] ✅ Completed: {domain}')
+        except TimeoutError:
+            log_operation(f'[{i}/{total}] ⏱️ Timeout: {domain}')
+        except Exception:
+            log_operation(f'[{i}/{total}] ❌ Error: {domain}')
+        finally:
+            # ВСЕГДА логируем завершение
+```
+
+### Батчевая обработка (legacy)
+- Всё еще доступна через `--batch-size`
+- Усложняет отладку из-за группировки источников
+- Будет удалена в версии 5.0
 
 ## 🛠️ Конфигурация
 
@@ -212,6 +240,14 @@ result = await monitor.scan_webpage('https://example.com/blog')
 - **Двойной экспорт**: URL теперь корректно помечаются как `exported_to_articles=true`
 
 ## 📄 История изменений
+
+**v4.0 (19.08.2025) - SEQUENTIAL PROCESSING** 🎯
+- **✅ ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА** - новый метод scan_sources_sequential()
+- **✅ ПОЛНОЕ ЛОГИРОВАНИЕ** - каждый источник с прогрессом [1/50], [2/50]
+- **✅ ГАРАНТИЯ ЛОГОВ** - try/finally блоки для каждого источника
+- **✅ УБРАНЫ ЗАДЕРЖКИ** - никаких sleep(), быстрая обработка
+- **✅ ОПЦИЯ --sequential** - выбор режима обработки в main.py
+- **✅ ПРОСТОТА ОТЛАДКИ** - последовательное выполнение, легко найти проблему
 
 **v3.3 (17.08.2025) - TIMEOUT FIX MVP** 🚀
 - **✅ РЕШЕНА ПРОБЛЕМА ЗАВИСАНИЙ** - Process Supervisor с жёстким таймаутом 60 сек

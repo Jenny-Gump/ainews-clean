@@ -1,11 +1,18 @@
 # API & Commands - Change Tracking
 
+**Версия**: 4.0 (19 августа 2025)  
 **Модули**: `core/main.py`, `change_tracking/monitor.py`  
 **Назначение**: Команды CLI и API для управления Change Tracking системой
 
 ## 📋 Обзор
 
 Change Tracking предоставляет набор CLI команд через основной файл `main.py` для сканирования источников, просмотра статистики и экспорта данных. Все команды используют флаг `--change-tracking` для активации модуля.
+
+## 🚀 НОВОЕ В ВЕРСИИ 4.0
+- **Последовательная обработка** через флаг `--sequential`
+- **Полное логирование** с прогрессом [1/50] для каждого источника
+- **Упрощенная отладка** благодаря последовательному выполнению
+- **Убраны задержки** для быстрой обработки
 
 ## 🖥️ CLI Команды
 
@@ -17,19 +24,25 @@ python core/main.py --change-tracking [COMMAND] [OPTIONS]
 
 ### 1. Сканирование источников
 
-#### Сканирование с лимитом
+#### Последовательное сканирование (РЕКОМЕНДУЕТСЯ v4.0)
 ```bash
-# Сканировать первые 5 источников
-python core/main.py --change-tracking --scan --limit 5
+# Сканировать первые 5 источников последовательно
+python core/main.py --change-tracking --scan --sequential --limit 5
 
-# Сканировать с батч-размером 3
+# Полное последовательное сканирование всех 47 источников
+python core/main.py --change-tracking --scan --sequential
+```
+
+#### Батчевое сканирование (deprecated, будет удалено в v5.0)
+```bash
+# Сканировать с батч-размером 3 (НЕ РЕКОМЕНДУЕТСЯ)
 python core/main.py --change-tracking --scan --limit 10 --batch-size 3
 ```
 
 #### Полное сканирование
 ```bash
-# Сканировать все 47 источников (займет ~15 минут)
-python core/main.py --change-tracking --scan
+# Сканировать все 47 источников последовательно (займет ~15 минут)
+python core/main.py --change-tracking --scan --sequential
 
 # Принудительное полное сканирование
 python core/main.py --change-tracking --complete-scan
@@ -119,8 +132,9 @@ python core/main.py --help
 | Параметр | Тип | Описание | Пример |
 |----------|-----|----------|---------|
 | `--scan` | flag | Запустить сканирование | `--scan` |
+| `--sequential` | flag | **[v4.0]** Последовательная обработка | `--sequential` |
 | `--limit` | int | Лимит источников | `--limit 5` |
-| `--batch-size` | int | Размер батча | `--batch-size 3` |
+| `--batch-size` | int | **[deprecated]** Размер батча | `--batch-size 3` |
 | `--complete-scan` | flag | Полное сканирование | `--complete-scan` |
 | `--tracking-stats` | flag | Показать статистику | `--tracking-stats` |
 | `--show-new-urls` | flag | Показать новые URL | `--show-new-urls` |
@@ -130,11 +144,11 @@ python core/main.py --help
 
 ### Комбинирование параметров
 ```bash
-# Сканирование с лимитом и статистикой
-python core/main.py --change-tracking --scan --limit 3 --batch-size 1
+# Последовательное сканирование с лимитом (РЕКОМЕНДУЕТСЯ)
+python core/main.py --change-tracking --scan --sequential --limit 3
 
 # Сканирование и немедленный экспорт
-python core/main.py --change-tracking --scan --export-articles
+python core/main.py --change-tracking --scan --sequential --export-articles
 
 # Статистика с показом URL
 python core/main.py --change-tracking --tracking-stats --show-new-urls --limit 10
@@ -154,6 +168,11 @@ monitor = ChangeMonitor()
 # Основные методы
 result = await monitor.scan_webpage(url)
 results = await monitor.scan_multiple_pages(urls) 
+
+# v4.0: Последовательное сканирование (РЕКОМЕНДУЕТСЯ)
+sequential_result = await monitor.scan_sources_sequential(limit=10, only_unscanned=False)
+
+# deprecated: Батчевое сканирование
 batch_result = await monitor.scan_sources_batch(batch_size=5, limit=10)
 ```
 
@@ -192,8 +211,19 @@ results = await monitor.scan_multiple_pages(urls)
 }
 ```
 
-#### `scan_sources_batch(batch_size, limit, only_unscanned=False)`
-**Назначение**: Батч-сканирование источников
+#### `scan_sources_sequential(limit, only_unscanned=False)` [v4.0]
+**Назначение**: Последовательное сканирование источников с полным логированием
+```python
+result = await monitor.scan_sources_sequential(
+    limit=10,
+    only_unscanned=False
+)
+
+# Возвращает детальную статистику с прогрессом [1/50]
+```
+
+#### `scan_sources_batch(batch_size, limit, only_unscanned=False)` [deprecated]
+**Назначение**: Батч-сканирование источников (будет удалено в v5.0)
 ```python
 result = await monitor.scan_sources_batch(
     batch_size=3, 
@@ -308,8 +338,8 @@ db.mark_as_exported('article_id_123')
 ```bash
 cd "/Users/skynet/Desktop/AI DEV/ainews-clean"
 
-# Сканировать 3 источника с батч-размером 1 (по одному)
-python core/main.py --change-tracking --scan --limit 3 --batch-size 1
+# Сканировать 3 источника последовательно (v4.0)
+python core/main.py --change-tracking --scan --sequential --limit 3
 
 # Посмотреть результаты
 python core/main.py --change-tracking --tracking-stats
@@ -317,11 +347,11 @@ python core/main.py --change-tracking --tracking-stats
 
 ### Пример 2: Мониторинг в production
 ```bash
-# Полное сканирование всех источников (production режим)
-python core/main.py --change-tracking --scan
+# Полное последовательное сканирование всех источников (v4.0)
+python core/main.py --change-tracking --scan --sequential
 
 # Экспорт найденных изменений
-python core/main.py --change-tracking --export-changes
+python core/main.py --change-tracking --export-articles
 
 # Проверка статистики
 python core/main.py --change-tracking --tracking-stats --show-new-urls
@@ -350,18 +380,19 @@ asyncio.run(debug_source())
 ## ⚠️ Ограничения и рекомендации
 
 ### Производительность
-- **Batch size**: Рекомендуется 3-5 для баланса скорости/стабильности
-- **Timeout**: Каждый источник может занять до 10 секунд
+- **Sequential processing**: [v4.0] Рекомендуется для полного контроля и логирования
+- **Batch size**: [deprecated] Не рекомендуется, будет удалено в v5.0
+- **Timeout**: Каждый источник может занять до 60 секунд
 - **Rate limiting**: Firecrawl API имеет лимиты запросов
 
 ### Мониторинг
 ```bash
 # Рекомендуемая частота сканирования
 # Быстрая проверка: каждые 2 часа
-python core/main.py --change-tracking --scan --limit 5
+python core/main.py --change-tracking --scan --sequential --limit 5
 
 # Полная проверка: раз в день  
-python core/main.py --change-tracking --scan --complete-scan
+python core/main.py --change-tracking --scan --sequential
 ```
 
 ### Логирование
