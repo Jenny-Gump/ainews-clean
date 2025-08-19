@@ -219,7 +219,7 @@ async def get_article_dates():
 @router.get("/articles")
 async def get_articles(
     search: Optional[str] = Query(None, description="Search in title and content"),
-    status: Optional[str] = Query(None, description="Filter by article status"),
+    status: Optional[str] = Query("pending", description="Filter by article status (default: pending)"),
     source_id: Optional[str] = Query(None, description="Filter by source ID"),
     article_type: Optional[str] = Query(None, description="Filter by article type (RSS/Blog)"),
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -233,6 +233,10 @@ async def get_articles(
 ):
     """Get articles with advanced filtering, search, and pagination"""
     try:
+        # Handle empty string status (means show all)
+        if status == '':
+            status = None
+        
         # Use core function which handles Supabase
         result = get_articles_with_filters(
             search=search,

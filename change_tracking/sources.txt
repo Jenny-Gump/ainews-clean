@@ -7,7 +7,8 @@ https://news.microsoft.com/source/topics/ai/
 https://huggingface.co/blog
 https://cloud.google.com/blog/products/ai-machine-learning
 https://aws.amazon.com/blogs/machine-learning/
-https://www.databricks.com/blog/category/engineering/ai
+# databricks.com - исключён: динамическая загрузка контента (JavaScript), несовместим с Firecrawl
+# https://www.databricks.com/blog/category/engineering/ai
 https://mistral.ai/news
 https://cohere.com/blog
 https://www.ai21.com/blog

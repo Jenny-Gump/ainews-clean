@@ -852,8 +852,18 @@
                     break;
                 case 'articles':
                     // Всегда загружаем свежие данные
+                    // По умолчанию показываем pending статьи (если не выбран другой фильтр)
+                    if (!activeFilters.status) {
+                        activeFilters.status = 'pending';
+                    }
                     loadArticlesData();
                     loadDatabaseStatsArticles();
+                    // Показываем активный фильтр
+                    if (activeFilters.status === 'pending') {
+                        showActiveFilter('status', 'Pending Articles');
+                    } else if (activeFilters.status === 'all') {
+                        showActiveFilter('status', 'All Articles (900+)');
+                    }
                     break;
                 case 'memory':
                     loadMemoryData();
@@ -889,7 +899,7 @@
         let activeFilters = {
             source: null,
             date: null,
-            status: null,
+            status: 'pending', // По умолчанию показываем только pending статьи
             type: null
         };
         
@@ -913,7 +923,13 @@
                 // Add active filters
                 if (activeFilters.source) params.append('source_filter', activeFilters.source);
                 if (activeFilters.date) params.append('date_filter', activeFilters.date);
-                if (activeFilters.status) params.append('status', activeFilters.status);
+                // Передаем status только если он не 'all' (all означает без фильтра)
+                if (activeFilters.status && activeFilters.status !== 'all') {
+                    params.append('status', activeFilters.status);
+                } else if (activeFilters.status === 'all') {
+                    // Явно передаем пустое значение для отмены фильтра по умолчанию
+                    params.append('status', '');
+                }
                 if (activeFilters.type) params.append('article_type', activeFilters.type);
                 
                 const response = await fetch(`/api/articles?${params}`);
@@ -1533,15 +1549,19 @@
                 const data = await response.json();
                 
                 let html = '';
-                // Add "All statuses" option
-                html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm" onclick="selectStatusFilter(null, 'All statuses')">
-                    <div class="font-medium">All statuses</div>
+                // Add "All Articles" option с предупреждением
+                html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm border-b" onclick="selectStatusFilter('all', 'All Articles')">
+                    <div class="font-medium text-blue-600">
+                        <i class="ri-global-line"></i> All Articles
+                    </div>
+                    <div class="text-orange-500 text-xs">⚠️ May load slowly (900+ articles)</div>
                 </div>`;
                 
-                // Add individual statuses
+                // Add individual statuses с подсветкой активного
                 data.statuses.forEach(status => {
-                    html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm" onclick="selectStatusFilter('${status.status}', '${status.status}')">
-                        <div class="font-medium">${escapeHtml(status.status)}</div>
+                    const isActive = activeFilters.status === status.status;
+                    html += `<div class="p-2 cursor-pointer hover:bg-gray-100 text-sm ${isActive ? 'bg-blue-50' : ''}" onclick="selectStatusFilter('${status.status}', '${status.status}')">
+                        <div class="font-medium ${isActive ? 'text-blue-600' : ''}">${escapeHtml(status.status)} ${isActive ? '✓' : ''}</div>
                         <div class="text-gray-500 text-xs">${status.count} articles</div>
                     </div>`;
                 });
@@ -1601,13 +1621,23 @@
         }
 
         function selectStatusFilter(statusValue, statusLabel) {
-            if (statusValue) {
-                filterByStatus(statusValue);
-            } else {
-                activeFilters.status = null;
+            if (statusValue === 'all') {
+                // Показываем все статьи - убираем фильтр
+                activeFilters.status = 'all';
+                activeFilters.source = null;
+                activeFilters.date = null;
+                activeFilters.type = null;
                 currentPage = 1;
                 loadArticlesData(1);
-                hideActiveFilter();
+                showActiveFilter('status', 'All Articles (900+)');
+            } else if (statusValue) {
+                filterByStatus(statusValue);
+            } else {
+                // Возвращаемся к pending по умолчанию
+                activeFilters.status = 'pending';
+                currentPage = 1;
+                loadArticlesData(1);
+                showActiveFilter('status', 'Pending');
             }
             hideAllFilterDropdowns();
         }

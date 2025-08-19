@@ -98,10 +98,6 @@ def get_articles_with_filters_supabase(
         # Format articles
         articles = []
         for article in result.data if result.data else []:
-            # Get media count for article
-            media_result = supabase.table('media_files').select('id', count='exact').eq('article_id', article['article_id']).execute()
-            media_count = media_result.count if hasattr(media_result, 'count') else 0
-            
             articles.append({
                 "article_id": article.get("article_id"),
                 "title": article.get("title", "No title"),
@@ -110,8 +106,6 @@ def get_articles_with_filters_supabase(
                 "published_at": article.get("published_date"),
                 "created_at": article.get("created_at"),
                 "status": article.get("content_status", "pending"),
-                "has_media": media_count > 0,
-                "media_count": media_count,
                 "source_name": source_names.get(article.get("source_id"), "Unknown"),
                 "article_type": "Blog" if article.get("discovered_via") == "change_tracking" else "RSS"
             })
