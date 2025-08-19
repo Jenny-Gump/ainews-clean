@@ -34,7 +34,9 @@ cleanup() {
     rm -f "$PID_FILE"
     
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] RSS + Change Tracking stopped by signal"
-    exit 0
+    
+    # Use exec to ensure complete termination
+    exec true
 }
 
 # Set up signal handlers
@@ -106,7 +108,9 @@ if [ $RSS_EXIT_CODE -eq 0 ]; then
             
             # Clean up PID file
             rm -f "$PID_FILE"
-            exit 0
+            
+            # Use exec to replace the shell process completely
+            exec true
         else
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Change Tracking export failed with code $EXPORT_EXIT_CODE"
             exit $EXPORT_EXIT_CODE

@@ -176,7 +176,25 @@ async def stop_rss_discovery():
     """Stop the RSS discovery process and all related Python processes"""
     try:
         import time  # Import time for sleep
+        import os
         stopped = []
+        
+        # First, try to kill using PID file if it exists
+        pid_file = "/Users/skynet/Desktop/AI DEV/ainews-clean/data/rss_tracking_process.pid"
+        if os.path.exists(pid_file):
+            try:
+                with open(pid_file, 'r') as f:
+                    main_pid = f.read().strip()
+                    if main_pid:
+                        # Send SIGTERM first, then SIGKILL if needed
+                        subprocess.run(["kill", "-TERM", main_pid], timeout=2, capture_output=True)
+                        time.sleep(0.5)
+                        subprocess.run(["kill", "-9", main_pid], timeout=2, capture_output=True)
+                        stopped.append(f"main_process_pid_{main_pid}")
+                        # Remove PID file
+                        os.remove(pid_file)
+            except Exception as e:
+                print(f"Error killing main process from PID file: {e}")
         
         # Additional cleanup: Kill all related Python processes
         try:
@@ -190,9 +208,15 @@ async def stop_rss_discovery():
                 "pkill", "-f", "main.py.*rss-discover"
             ], timeout=3, capture_output=True)
             
-            # Kill any hanging run_rss_and_tracking.sh processes
+            # Kill bash processes running our script (handles spaces in path)
+            # Use multiple patterns to catch different variations
             subprocess.run([
-                "pkill", "-f", "run_rss_and_tracking.sh"
+                "pkill", "-f", "run_rss_and_tracking"
+            ], timeout=3, capture_output=True)
+            
+            # Also try with partial path to handle spaces
+            subprocess.run([
+                "pkill", "-f", "scripts/run_rss"
             ], timeout=3, capture_output=True)
             
             stopped.append("rss_and_tracking_processes")
@@ -210,18 +234,27 @@ async def stop_rss_discovery():
         # Check if any related processes are still running
         remaining_processes = []
         try:
+            # Check for Python processes
             result = subprocess.run([
                 "pgrep", "-f", "main.py.*(change-tracking|rss-discover)"
             ], capture_output=True, text=True, timeout=3)
             if result.stdout.strip():
-                remaining_processes = result.stdout.strip().split('\n')
-                # Force kill remaining processes
-                for pid in remaining_processes:
-                    if pid.strip():
-                        try:
-                            subprocess.run(["kill", "-9", pid.strip()], timeout=2)
-                        except:
-                            pass
+                remaining_processes.extend(result.stdout.strip().split('\n'))
+            
+            # Check for bash processes running our scripts
+            result = subprocess.run([
+                "pgrep", "-f", "run_rss.*tracking"
+            ], capture_output=True, text=True, timeout=3)
+            if result.stdout.strip():
+                remaining_processes.extend(result.stdout.strip().split('\n'))
+                
+            # Force kill all remaining processes
+            for pid in remaining_processes:
+                if pid.strip():
+                    try:
+                        subprocess.run(["kill", "-9", pid.strip()], timeout=2)
+                    except:
+                        pass
         except:
             pass
         

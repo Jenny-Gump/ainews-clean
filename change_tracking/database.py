@@ -21,6 +21,113 @@ class ChangeTrackingDB:
     def __init__(self):
         self.logger = get_logger('change_tracking.database')
         self.supabase = DatabaseConfig.get_database()  # Supabase client
+        self.supabase_timeout = 30  # Таймаут для Supabase запросов в секундах
+    
+    def _execute_with_timeout(self, query_func, query_name: str, timeout: int = None):
+        """
+        Выполняет Supabase запрос с таймаутом и централизованным логированием
+        
+        Args:
+            query_func: Функция запроса к Supabase
+            query_name: Имя запроса для логирования
+            timeout: Таймаут в секундах
+            
+        Returns:
+            Результат запроса или None при ошибке
+        """
+        from app_logging import log_operation
+        import concurrent.futures
+        
+        timeout = timeout or self.supabase_timeout
+        
+        # Логируем начало операции
+        log_operation(
+            'supabase_query_start',
+            phase='database',
+            message=f'🔍 Supabase query: {query_name}',
+            query_name=query_name,
+            timeout_seconds=timeout,
+            success=True
+        )
+        
+        start_time = time.time()
+        
+        try:
+            # Используем ThreadPoolExecutor для таймаута
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(query_func)
+                result = future.result(timeout=timeout)
+            
+            duration = time.time() - start_time
+            
+            # Логируем успешное завершение
+            log_operation(
+                'supabase_query_complete',
+                phase='database',
+                message=f'✅ Supabase query completed: {query_name}',
+                query_name=query_name,
+                duration_seconds=duration,
+                success=True
+            )
+            
+            if duration > 5:
+                self.logger.warning(f"Slow Supabase query: {query_name} took {duration:.2f}s")
+                log_operation(
+                    'supabase_slow_query',
+                    phase='database',
+                    message=f'⚠️ Slow query: {query_name} ({duration:.2f}s)',
+                    query_name=query_name,
+                    duration_seconds=duration,
+                    success=True
+                )
+            
+            return result
+            
+        except concurrent.futures.TimeoutError:
+            duration = time.time() - start_time
+            error_msg = f"Supabase query timeout: {query_name} after {duration:.2f}s"
+            self.logger.error(error_msg)
+            
+            # Централизованное логирование таймаута
+            log_error('supabase_timeout', error_msg, 
+                     query_name=query_name, 
+                     timeout_seconds=timeout,
+                     actual_duration=duration,
+                     module='change_tracking.database')
+            
+            log_operation(
+                'supabase_query_timeout',
+                phase='database',
+                message=f'❌ Query timeout: {query_name}',
+                query_name=query_name,
+                duration_seconds=duration,
+                timeout_seconds=timeout,
+                success=False
+            )
+            return None
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            error_msg = f"Supabase query failed: {query_name} after {duration:.2f}s: {str(e)}"
+            self.logger.error(error_msg)
+            
+            # Централизованное логирование ошибки
+            log_error('supabase_error', error_msg,
+                     query_name=query_name,
+                     error=str(e),
+                     duration_seconds=duration,
+                     module='change_tracking.database')
+            
+            log_operation(
+                'supabase_query_error',
+                phase='database',
+                message=f'❌ Query failed: {query_name}',
+                query_name=query_name,
+                error=str(e),
+                duration_seconds=duration,
+                success=False
+            )
+            return None
     
     def create_tracked_article(
         self, 
@@ -279,7 +386,7 @@ class ChangeTrackingDB:
         urls_data: List[Dict[str, str]]
     ) -> int:
         """
-        Сохраняет извлеченные URL в таблицу tracked_urls в Supabase
+        Сохраняет извлеченные URL в таблицу tracked_urls в Supabase с таймаутом
         
         Args:
             source_page_url: URL страницы-каталога
@@ -380,7 +487,7 @@ class ChangeTrackingDB:
             return 0
     
     def add_tracked_urls(self, urls_data: List[Dict[str, Any]]) -> int:
-        """Добавляет новые отслеживаемые URL в Supabase с батч-обработкой"""
+        """Добавляет новые отслеживаемые URL в Supabase с батч-обработкой и таймаутом"""
         if not urls_data:
             return 0
             
@@ -389,17 +496,21 @@ class ChangeTrackingDB:
             source_page_url = urls_data[0]['source_page_url']
             article_urls = [url_data['article_url'] for url_data in urls_data]
             
-            # Получаем ВСЕ существующие URL одним запросом
-            try:
-                existing_response = self.supabase.client.table('tracked_urls')\
+            # Получаем ВСЕ существующие URL одним запросом с таймаутом
+            query_name = f"check_existing_urls({source_page_url[:50]}..., {len(article_urls)} urls)"
+            
+            def _check_existing():
+                return self.supabase.client.table('tracked_urls')\
                     .select('article_url')\
                     .eq('source_page_url', source_page_url)\
                     .in_('article_url', article_urls)\
                     .execute()
-                
-                existing_urls = {row['article_url'] for row in existing_response.data} if existing_response.data else set()
-            except Exception as e:
-                self.logger.error(f"Error checking existing URLs: {e}")
+            
+            existing_response = self._execute_with_timeout(_check_existing, query_name)
+            
+            if existing_response and existing_response.data:
+                existing_urls = {row['article_url'] for row in existing_response.data}
+            else:
                 existing_urls = set()
             
             # Фильтруем только новые URL
@@ -420,51 +531,41 @@ class ChangeTrackingDB:
                 self.logger.debug(f"All {len(urls_data)} URLs already exist")
                 return 0
             
-            # ОПТИМИЗАЦИЯ: Батч-вставка всех новых URL одним запросом
-            try:
-                response = self.supabase.client.table('tracked_urls').insert(new_urls_to_insert).execute()
-                
-                if response.data:
-                    new_count = len(response.data)
-                    self.logger.info(f"Added {new_count} new tracked URLs to Supabase (batch insert)")
-                    return new_count
-                else:
-                    self.logger.warning("Batch insert returned no data")
-                    return 0
-                    
-            except Exception as e:
-                self.logger.error(f"Error in batch insert: {e}")
-                # Fallback: попробовать вставить по одному
-                inserted = 0
-                for insert_data in new_urls_to_insert[:5]:  # Максимум 5 попыток
-                    try:
-                        response = self.supabase.client.table('tracked_urls').insert(insert_data).execute()
-                        if response.data:
-                            inserted += 1
-                    except Exception as single_error:
-                        self.logger.debug(f"Single insert failed: {single_error}")
-                        continue
-                return inserted
+            # ОПТИМИЗАЦИЯ: Батч-вставка всех новых URL одним запросом с таймаутом
+            query_name = f"batch_insert_urls({len(new_urls_to_insert)} urls)"
             
+            def _batch_insert():
+                return self.supabase.client.table('tracked_urls').insert(new_urls_to_insert).execute()
+            
+            response = self._execute_with_timeout(_batch_insert, query_name)
+            
+            if response and response.data:
+                new_count = len(response.data)
+                self.logger.info(f"Added {new_count} new tracked URLs to Supabase (batch insert)")
+                return new_count
+            else:
+                self.logger.warning("Batch insert returned no data")
+                return 0
+                    
         except Exception as e:
             self.logger.error(f"Error in add_tracked_urls: {e}")
             return 0
     
     def get_existing_urls_for_source(self, source_page_url: str) -> Set[str]:
-        """Получает существующие URL для определенной страницы источника"""
-        try:
-            response = self.supabase.client.table('tracked_urls')\
+        """Получает существующие URL для определенной страницы источника с таймаутом"""
+        query_name = f"get_existing_urls_for_source({source_page_url[:50]}...)"
+        
+        def _query():
+            return self.supabase.client.table('tracked_urls')\
                 .select('article_url')\
                 .eq('source_page_url', source_page_url)\
                 .execute()
-            
-            if response.data:
-                return {row['article_url'] for row in response.data}
-            return set()
-            
-        except Exception as e:
-            self.logger.error(f"Error getting existing URLs for {source_page_url}: {e}")
-            return set()
+        
+        response = self._execute_with_timeout(_query, query_name)
+        
+        if response and response.data:
+            return {row['article_url'] for row in response.data}
+        return set()
     
     def mark_urls_as_old(self, source_page_url: str) -> bool:
         """Помечает все URL для данного источника как старые (is_new = 0)"""

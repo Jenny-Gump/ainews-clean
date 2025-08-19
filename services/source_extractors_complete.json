@@ -189,9 +189,9 @@
     },
     "perplexity": {
       "name": "Perplexity AI Blog",
-      "url": "https://blog.perplexity.ai/",
+      "url": "https://www.perplexity.ai/hub",
       "patterns": [
-        "\\]\\((https://blog\\.perplexity\\.ai/[^)]+)\\)"
+        "\\]\\((https://www\\.perplexity\\.ai/hub/blog/[^)]+)\\)"
       ],
       "title_extraction": [
         "\\[([^\\]]+)\\]\\("

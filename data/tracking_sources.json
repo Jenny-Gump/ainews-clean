@@ -324,15 +324,15 @@
       "source_id": "perplexity",
       "name": "Perplexity AI Blog",
       "url": "https://www.perplexity.ai/hub",
-      "rss_url": "https://blog.perplexity.ai/rss",
+      "rss_url": null,
       "type": "web",
       "category": "ai_companies"
     },
     {
       "source_id": "cerebras",
       "name": "Cerebras AI Blog",
-      "url": "https://cerebras.ai/blog",
-      "rss_url": "https://cerebras.ai/blog/rss",
+      "url": "https://www.cerebras.ai/blog",
+      "rss_url": "https://www.cerebras.ai/blog/rss",
       "type": "web",
       "category": "ai_infrastructure"
     },

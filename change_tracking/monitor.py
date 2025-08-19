@@ -154,15 +154,28 @@ class ChangeMonitor:
                     )
                 elif result['status'] == 'unchanged':
                     # Unchanged тоже может быть ошибкой если источник постоянно возвращает 0 URLs
-                    urls_found = result.get('extracted_urls', 0)
+                    # Получаем детальную статистику URL
+                    url_stats = result.get('url_stats', {})
+                    total_checked = url_stats.get('total_extracted', 0)
+                    new_urls = url_stats.get('new_urls', 0)
+                    
+                    # Формируем сообщение в зависимости от результатов
+                    if new_urls > 0:
+                        message = f'⏸️ No changes: {domain} ({total_checked} URLs checked, {new_urls} new)'
+                    elif total_checked > 0:
+                        message = f'⏸️ No changes: {domain} ({total_checked} URLs checked, all existing)'
+                    else:
+                        message = f'⏸️ No changes: {domain} (0 URLs found)'
+                    
                     success = True  # unchanged обычно OK, но если 0 URLs - проблема логируется отдельно
                     log_operation(
                         'change_tracking_source_unchanged',
                         phase='change_tracking',
-                        message=f'⏸️ No changes: {domain} ({urls_found} URLs extracted)',
+                        message=message,
                         source_id=source_id,
                         url=url,
-                        urls_found=urls_found,
+                        urls_found=new_urls,
+                        urls_checked=total_checked,
                         success=success
                     )
                 return result
@@ -318,41 +331,51 @@ class ChangeMonitor:
                 # Извлекаем URL статей при каждом успешном сканировании (кроме первого)
                 if result.get('status') == 'changed' and markdown_content:
                     try:
-                        extracted_urls = await self.extract_article_urls(url, markdown_content)
-                        if extracted_urls:
-                            result['extracted_urls'] = extracted_urls
-                            self.logger.info(f"Extracted {extracted_urls} URLs from {url} (CHANGED)")
+                        url_stats = await self.extract_article_urls(url, markdown_content)
+                        result['extracted_urls'] = url_stats['new_urls']  # Для обратной совместимости
+                        result['url_stats'] = url_stats  # Полная статистика
+                        
+                        if url_stats['new_urls'] > 0:
+                            self.logger.info(f"Extracted {url_stats['total_extracted']} URLs from {url} (CHANGED): {url_stats['new_urls']} new, {url_stats['existing_urls']} existing")
                         else:
-                            result['extracted_urls'] = 0
-                            # Источник изменился но URL не найдены - критическая ошибка
+                            # Источник изменился но новых URL не найдено
                             source_id = self._get_source_id(url)
-                            error_msg = f"CHANGED source {source_id} but extracted 0 URLs"
-                            self.logger.error(f"❌ {error_msg}")
-                            log_error('changed_source_no_urls', error_msg,
-                                     source_id=source_id, url=url, 
-                                     module='change_tracking.monitor')
+                            if url_stats['total_extracted'] > 0:
+                                self.logger.warning(f"⚠️ CHANGED source {source_id}: checked {url_stats['total_extracted']} URLs, all existing")
+                            else:
+                                error_msg = f"CHANGED source {source_id} but extracted 0 URLs - patterns may be broken"
+                                self.logger.error(f"❌ {error_msg}")
+                                log_error('changed_source_no_urls', error_msg,
+                                         source_id=source_id, url=url, 
+                                         module='change_tracking.monitor')
                     except Exception as e:
                         self.logger.warning(f"Error extracting URLs from {url}: {e}")
                         result['extracted_urls'] = 0
+                        result['url_stats'] = {'total_extracted': 0, 'new_urls': 0, 'existing_urls': 0}
                 elif result.get('status') == 'unchanged' and markdown_content:
                     # Извлекаем URL даже если страница не изменилась (могли добавиться новые статьи)
                     try:
-                        extracted_urls = await self.extract_article_urls(url, markdown_content)
-                        if extracted_urls:
-                            result['extracted_urls'] = extracted_urls
-                            self.logger.info(f"Extracted {extracted_urls} URLs from {url} (UNCHANGED)")
+                        url_stats = await self.extract_article_urls(url, markdown_content)
+                        result['extracted_urls'] = url_stats['new_urls']  # Для обратной совместимости
+                        result['url_stats'] = url_stats  # Полная статистика
+                        
+                        if url_stats['new_urls'] > 0:
+                            self.logger.info(f"Extracted {url_stats['total_extracted']} URLs from {url} (UNCHANGED): {url_stats['new_urls']} new, {url_stats['existing_urls']} existing")
                         else:
-                            result['extracted_urls'] = 0
-                            # Источник не изменился но URL тоже не найдены - паттерны сломаны
+                            # Источник не изменился и новых URL нет
                             source_id = self._get_source_id(url)
-                            error_msg = f"UNCHANGED source {source_id} still has 0 URLs"
-                            self.logger.error(f"❌ {error_msg}")
-                            log_error('unchanged_source_no_urls', error_msg,
-                                     source_id=source_id, url=url,
-                                     module='change_tracking.monitor')
+                            if url_stats['total_extracted'] > 0:
+                                self.logger.info(f"ℹ️ UNCHANGED source {source_id}: checked {url_stats['total_extracted']} URLs, all existing")
+                            else:
+                                error_msg = f"UNCHANGED source {source_id} has 0 URLs - patterns may be broken"
+                                self.logger.error(f"❌ {error_msg}")
+                                log_error('unchanged_source_no_urls', error_msg,
+                                         source_id=source_id, url=url,
+                                         module='change_tracking.monitor')
                     except Exception as e:
                         self.logger.warning(f"Error extracting URLs from {url}: {e}")
                         result['extracted_urls'] = 0
+                        result['url_stats'] = {'total_extracted': 0, 'new_urls': 0, 'existing_urls': 0}
                 elif result.get('status') == 'new':
                     # При первом сканировании НЕ извлекаем URL (сохраняем как baseline)
                     self.logger.info(f"NEW page tracked: {url} - URL extraction skipped (first scan)")
@@ -588,8 +611,11 @@ class ChangeMonitor:
             )
             
             try:
-                # Сканируем источник
-                result = await self.scan_webpage(url)
+                # Сканируем источник с таймаутом (60 сек на попытку × 3 попытки = 180 сек максимум)
+                result = await asyncio.wait_for(
+                    self.scan_webpage(url),
+                    timeout=180  # 3 минуты максимум на источник
+                )
                 
                 # Обновляем счетчики
                 status = result.get('status', 'error')
@@ -681,12 +707,15 @@ class ChangeMonitor:
                 })
                 
             finally:
+                # Очистка памяти после КАЖДОГО источника
+                gc.collect()
+                
                 # ВСЕГДА логируем что источник обработан
                 if i % 10 == 0:  # Каждые 10 источников показываем прогресс
                     self.logger.info(f"Progress: {i}/{total} sources processed")
-                    # Принудительная очистка памяти каждые 10 источников
-                    gc.collect()
-                    self.logger.debug(f"Memory cleanup performed after {i} sources")
+                    # Дополнительная глубокая очистка памяти каждые 10 источников
+                    gc.collect(2)  # Полная сборка мусора всех поколений
+                    self.logger.debug(f"Deep memory cleanup performed after {i} sources")
                     
                     # Очищаем накопленные результаты для экономии памяти
                     # Сохраняем только последние 10 для отладки
@@ -784,7 +813,7 @@ class ChangeMonitor:
     # URL Extraction Methods
     # ========================================
     
-    async def extract_article_urls(self, source_page_url: str, markdown_content: str) -> int:
+    async def extract_article_urls(self, source_page_url: str, markdown_content: str) -> dict:
         """
         Извлекает URL статей из markdown контента и сохраняет в БД
         
@@ -793,7 +822,12 @@ class ChangeMonitor:
             markdown_content: Markdown контент страницы
             
         Returns:
-            Количество найденных новых URL
+            Словарь с детальной статистикой:
+            {
+                'total_extracted': количество всех найденных URL,
+                'new_urls': количество новых URL,
+                'existing_urls': количество уже существующих URL
+            }
         """
         try:
             # Извлекаем URL из markdown контента
@@ -822,27 +856,41 @@ class ChangeMonitor:
                          domain=domain,
                          module='change_tracking.monitor',
                          operation='extract_article_urls')
-                return 0
+                return {'total_extracted': 0, 'new_urls': 0, 'existing_urls': 0}
             
-            # Получаем существующие URL для этого источника
+            # Получаем существующие URL для этого источника с таймаутом
             existing_urls = self.db.get_existing_urls_for_source(source_page_url)
+            
+            # Считаем общую статистику
+            total_extracted = len(extracted_urls)
+            # Исправлено: правильное пересечение множеств
+            extracted_article_urls = set(url_data['article_url'] for url_data in extracted_urls)
+            existing_count = len(existing_urls.intersection(extracted_article_urls))
             
             # Находим только новые URL
             new_urls = self.url_extractor.find_new_urls(extracted_urls, existing_urls)
             
             if new_urls:
-                # Сохраняем только новые URL (без сброса флагов старых)
+                # Сохраняем только новые URL с таймаутом
                 stored_count = self.db.store_tracked_urls(source_page_url, new_urls)
                 
-                self.logger.info(f"Stored {stored_count} new URLs from {source_page_url}")
-                return stored_count
+                self.logger.info(f"Found {total_extracted} URLs total, {stored_count} new, {existing_count} existing from {source_page_url}")
+                return {
+                    'total_extracted': total_extracted,
+                    'new_urls': stored_count,
+                    'existing_urls': existing_count
+                }
             else:
-                self.logger.debug(f"No new URLs found for {source_page_url}")
-                return 0
+                self.logger.debug(f"No new URLs found for {source_page_url} (total: {total_extracted}, all existing)")
+                return {
+                    'total_extracted': total_extracted,
+                    'new_urls': 0,
+                    'existing_urls': total_extracted
+                }
                 
         except Exception as e:
             self.logger.error(f"Error in extract_article_urls for {source_page_url}: {e}")
-            return 0
+            return {'total_extracted': 0, 'new_urls': 0, 'existing_urls': 0}
     
     async def extract_urls_from_all_tracked(self, limit: int = None) -> Dict[str, Any]:
         """
@@ -872,12 +920,12 @@ class ChangeMonitor:
             
             for article in changed_articles:
                 if article.get('content'):
-                    extracted_count = await self.extract_article_urls(
+                    url_stats = await self.extract_article_urls(
                         article['url'], 
                         article['content']
                     )
-                    total_urls += extracted_count
-                    new_urls += extracted_count
+                    total_urls += url_stats['total_extracted']
+                    new_urls += url_stats['new_urls']
                     processed += 1
             
             self.logger.info(f"URL extraction complete: {processed} pages processed, {new_urls} new URLs found")

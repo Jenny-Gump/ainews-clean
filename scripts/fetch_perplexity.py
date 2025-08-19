@@ -15,7 +15,7 @@ headers = {
     "Content-Type": "application/json"
 }
 data = {
-    "url": "https://blog.perplexity.ai/",
+    "url": "https://www.perplexity.ai/hub",
     "formats": ["markdown"],
     "timeout": 60000
 }

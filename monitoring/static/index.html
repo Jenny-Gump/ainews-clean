@@ -1976,8 +1976,9 @@
                     
                     // Only update RSS button if not in grace period
                     if (!inRssGracePeriod) {
-                        // Check rss_discovery status (not status.rss)
-                        if (status.rss_discovery === 'running') {
+                        // Check both rss_discovery and change_tracking status
+                        // RSS button controls integrated RSS + Change Tracking
+                        if (status.rss_discovery === 'running' || status.change_tracking === 'running') {
                             extractState.rss = true;
                             rssButton.className = "extract-btn extract-btn-destructive";
                             rssIcon.classList.add('animate-pulse');

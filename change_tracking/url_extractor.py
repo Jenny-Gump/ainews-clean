@@ -60,16 +60,17 @@ class URLExtractor:
             'cursor.sh': [r'/blog/[^/]+'],  # Альтернативный домен Cursor
             'crusoe.ai': [r'/resources/blog/[^/]+'],  # ИСПРАВЛЕНО
             'www.crusoe.ai': [r'/resources/blog/[^/]+'],  # С www
-            'cerebras.ai': [r'/blog/[^/]+'],
+            'cerebras.ai': [r'/blog/[^/]+'],  # ИСПРАВЛЕНО: добавлен www
+            'www.cerebras.ai': [r'/blog/[^/]+'],  # Основной домен с www
             'lambda.ai': [r'/blog/[^/]+'],
             'scale.com': [r'/blog/[^/]+'],
             'databricks.com': [r'/blog/'],
             'together.ai': [r'/blog/[^/]+'],
             
             # News & Media
-            'blog.perplexity.ai': [r'/[^/]+$'],
+            # blog.perplexity.ai редиректит на www.perplexity.ai/hub
             'perplexity.ai': [r'/hub/blog/[^/]+'],  # Реальный путь к блогу
-            'www.perplexity.ai': [r'/hub/'],  # Hub страницы
+            'www.perplexity.ai': [r'/hub/blog/[^/]+'],  # Hub blog статьи
             'the-decoder.com': [r'/[^/]+/$'],
             'techcrunch.com': [r'/category/artificial-intelligence/'],
             'venturebeat.com': [r'/ai/'],
@@ -268,7 +269,7 @@ class URLExtractor:
             'deepmind.google', 'new.abb.com', 'scale.com', 'stability.ai', 'waymo.com', 'c3.ai', 'crusoe.ai', 'cursor.com',
             'databricks.com', 'research.google', 'instabase.com', 'kinovarobotics.com', 'kuka.com', 'manus.im',
             'openevidence.com', 'huggingface.co', 'pathai.com', 'www.perplexity.ai', 'soundhound.com',
-            'uizard.io', 'writer.com', 'b12.io'
+            'uizard.io', 'writer.com', 'b12.io', 'cerebras.ai', 'www.cerebras.ai'
         ]
         
         if any(domain in source_page_url for domain in escape_sources):

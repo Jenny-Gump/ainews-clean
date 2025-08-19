@@ -247,7 +247,7 @@
     },
     "perplexity": {
       "name": "Perplexity AI Blog",
-      "url": "https://blog.perplexity.ai/",
+      "url": "https://www.perplexity.ai/hub",
       "patterns": [
         "\\]\\((https://www\\.perplexity\\.ai/hub/blog/[^)]+)\\)"
       ],

@@ -1,0 +1,58 @@
+2025-08-19 12:25:52 - core.main - INFO - 🚀 AI News Parser - Single Pipeline System
+2025-08-19 12:25:52 - core.main - INFO - 🔍 Начинаем ПОСЛЕДОВАТЕЛЬНОЕ сканирование источников...
+2025-08-19 12:25:52 - core.db_config - INFO - ✅ Using REAL Python Supabase client
+2025-08-19 12:25:52 - services.supabase_client - INFO - Connected to Supabase: https://mtguynupyltlqiwhmilc.supabase.co
+2025-08-19 12:25:52 - change_tracking.url_extractor - INFO - URLExtractor loaded 66 tracking sources from JSON
+2025-08-19 12:25:52 - change_tracking.monitor - INFO - Loaded 66 tracking sources from JSON
+2025-08-19 12:25:52 - change_tracking.monitor - INFO - Sequential scanning 5 sources
+2025-08-19 12:25:52 - change_tracking.monitor - INFO - Scanning webpage: https://www.anthropic.com/news
+2025-08-19 12:26:02 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?select=%2A&url=eq.https%3A%2F%2Fwww.anthropic.com%2Fnews&limit=1 "HTTP/2 200 OK"
+2025-08-19 12:26:02 - httpx - INFO - HTTP Request: PATCH https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?article_id=eq.7beeb2b3 "HTTP/2 200 OK"
+2025-08-19 12:26:02 - change_tracking.url_extractor - INFO - Extracted 29 unique URLs from https://www.anthropic.com/news
+2025-08-19 12:26:03 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_urls?select=article_url&source_page_url=eq.https%3A%2F%2Fwww.anthropic.com%2Fnews "HTTP/2 200 OK"
+2025-08-19 12:26:03 - change_tracking.url_extractor - INFO - Found 0 new URLs out of 29 total
+2025-08-19 12:26:03 - change_tracking.monitor - ERROR - ❌ UNCHANGED source anthropic still has 0 URLs
+2025-08-19 12:26:03 - change_tracking.monitor - INFO - Scanning webpage: https://blog.google/technology/ai/
+2025-08-19 12:26:12 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?select=%2A&url=eq.https%3A%2F%2Fblog.google%2Ftechnology%2Fai%2F&limit=1 "HTTP/2 200 OK"
+2025-08-19 12:26:12 - httpx - INFO - HTTP Request: PATCH https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?article_id=eq.23b5c44e "HTTP/2 200 OK"
+2025-08-19 12:26:12 - change_tracking.url_extractor - ERROR - ❌ Pattern mismatch for blog.google: URL paths don't match configured patterns: ['/technology/ai/']
+2025-08-19 12:26:12 - change_tracking.url_extractor - INFO - Extracted 1 unique URLs from https://blog.google/technology/ai/
+2025-08-19 12:26:12 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_urls?select=article_url&source_page_url=eq.https%3A%2F%2Fblog.google%2Ftechnology%2Fai%2F "HTTP/2 200 OK"
+2025-08-19 12:26:12 - change_tracking.url_extractor - INFO - Found 0 new URLs out of 1 total
+2025-08-19 12:26:12 - change_tracking.monitor - ERROR - ❌ UNCHANGED source google_ai_blog still has 0 URLs
+2025-08-19 12:26:12 - change_tracking.monitor - INFO - Scanning webpage: https://research.google/blog/
+2025-08-19 12:26:24 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?select=%2A&url=eq.https%3A%2F%2Fresearch.google%2Fblog%2F&limit=1 "HTTP/2 200 OK"
+2025-08-19 12:26:24 - httpx - INFO - HTTP Request: PATCH https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?article_id=eq.a0f5aaa6 "HTTP/2 200 OK"
+2025-08-19 12:26:24 - change_tracking.url_extractor - INFO - Extracted 12 unique URLs from https://research.google/blog/
+2025-08-19 12:26:24 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_urls?select=article_url&source_page_url=eq.https%3A%2F%2Fresearch.google%2Fblog%2F "HTTP/2 200 OK"
+2025-08-19 12:26:24 - change_tracking.url_extractor - INFO - Found 0 new URLs out of 12 total
+2025-08-19 12:26:24 - change_tracking.monitor - ERROR - ❌ UNCHANGED source google_research still has 0 URLs
+2025-08-19 12:26:24 - change_tracking.monitor - INFO - Scanning webpage: https://deepmind.google/discover/blog/
+2025-08-19 12:26:34 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?select=%2A&url=eq.https%3A%2F%2Fdeepmind.google%2Fdiscover%2Fblog%2F&limit=1 "HTTP/2 200 OK"
+2025-08-19 12:26:34 - httpx - INFO - HTTP Request: PATCH https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?article_id=eq.7a62c756 "HTTP/2 200 OK"
+2025-08-19 12:26:34 - change_tracking.url_extractor - INFO - Extracted 8 unique URLs from https://deepmind.google/discover/blog/
+2025-08-19 12:26:34 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_urls?select=article_url&source_page_url=eq.https%3A%2F%2Fdeepmind.google%2Fdiscover%2Fblog%2F "HTTP/2 200 OK"
+2025-08-19 12:26:34 - change_tracking.url_extractor - INFO - Found 0 new URLs out of 8 total
+2025-08-19 12:26:34 - change_tracking.monitor - ERROR - ❌ UNCHANGED source deepmind still has 0 URLs
+2025-08-19 12:26:34 - change_tracking.monitor - INFO - Scanning webpage: https://openai.com/news/
+2025-08-19 12:26:43 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?select=%2A&url=eq.https%3A%2F%2Fopenai.com%2Fnews%2F&limit=1 "HTTP/2 200 OK"
+2025-08-19 12:26:43 - httpx - INFO - HTTP Request: PATCH https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_articles?article_id=eq.6d89bece "HTTP/2 200 OK"
+2025-08-19 12:26:43 - change_tracking.monitor - INFO - CHANGED: https://openai.com/news/
+2025-08-19 12:26:43 - change_tracking.url_extractor - ERROR - ❌ Pattern mismatch for openai.com: URL paths don't match configured patterns: ['/blog/', '/news/', '/index/', '/[^/]+/$']
+2025-08-19 12:26:43 - change_tracking.url_extractor - INFO - Extracted 19 unique URLs from https://openai.com/news/
+2025-08-19 12:26:43 - httpx - INFO - HTTP Request: GET https://mtguynupyltlqiwhmilc.supabase.co/rest/v1/tracked_urls?select=article_url&source_page_url=eq.https%3A%2F%2Fopenai.com%2Fnews%2F "HTTP/2 200 OK"
+2025-08-19 12:26:43 - change_tracking.url_extractor - INFO - Found 0 new URLs out of 19 total
+2025-08-19 12:26:43 - change_tracking.monitor - ERROR - ❌ CHANGED source openai_tracking but extracted 0 URLs
+2025-08-19 12:26:43 - change_tracking.monitor - INFO - Sequential scan complete: 0 new, 1 changed, 4 unchanged, 0 errors
+2025-08-19 12:26:43 - core.main - INFO - 
+📊 РЕЗУЛЬТАТЫ СКАНИРОВАНИЯ:
+2025-08-19 12:26:43 - core.main - INFO - ============================================================
+2025-08-19 12:26:43 - core.main - INFO -   📋 Всего проверено: 5
+2025-08-19 12:26:43 - core.main - INFO -   🆕 Новых страниц:   0
+2025-08-19 12:26:43 - core.main - INFO -   🔄 Изменений:       1
+2025-08-19 12:26:43 - core.main - INFO -   ⚪ Без изменений:   4
+2025-08-19 12:26:43 - core.main - INFO -   ❌ Ошибок:         0
+2025-08-19 12:26:43 - core.main - INFO - 
+🔥 ОБНАРУЖЕНЫ ИЗМЕНЕНИЯ (1):
+2025-08-19 12:26:43 - core.main - INFO - ------------------------------------------------------------
+2025-08-19 12:26:43 - core.main - INFO -    1. 🔄 https://openai.com/news/
