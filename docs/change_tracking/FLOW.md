@@ -1,9 +1,9 @@
 # Change Tracking System - Детальный Flow
 
-**Версия:** 3.4 (18 августа 2025)  
-**Статус:** Production Ready + Unified Timeout Strategy  
-**Основа:** Анализ кода из change_tracking/monitor.py, database.py и process_supervisor.py  
-**Обновления:** Единая стратегия таймаутов (60 сек на источник), 3 retry по умолчанию
+**Версия:** 4.0 (19 августа 2025)  
+**Статус:** Production Ready + Sequential Processing  
+**Основа:** Анализ кода из change_tracking/monitor.py, database.py  
+**Обновления:** Последовательная обработка, полное логирование каждого источника [1/50]
 
 ---
 
@@ -174,38 +174,45 @@ GROUP BY is_new, exported_to_articles;
 
 ---
 
-## 🛡️ Timeout Strategy - Единая стратегия таймаутов (v3.4)
+## 🔄 Sequential Processing (v4.0)
 
-### Новая конфигурация таймаутов:
-**Главный таймаут:** 60 секунд на источник (asyncio.wait_for в monitor.py)  
-**HTTP таймаут:** 55 секунд (aiohttp ClientTimeout в FirecrawlClient)  
-**Retry:** 3 попытки по умолчанию (max_retries=3)
+### Новая архитектура - ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА:
+```bash
+# Запуск последовательного сканирования
+python core/main.py --change-tracking --scan --sequential
 
-### Иерархия таймаутов:
-1. **asyncio.wait_for(60s)** - главный контроль в monitor.py
-2. **aiohttp.ClientTimeout(55s)** - HTTP уровень в FirecrawlClient
-3. **Process Supervisor(60s)** - резервная защита от зависаний
-
-### Преимущества:
-- **Простота** - один понятный таймаут на источник
-- **Надежность** - правильная иерархия предотвращает зависания
-- **Гибкость** - 3 retry дают шанс временным сбоям
-
-### Использование:
-```python
-from core.process_supervisor import ProcessSupervisor
-
-supervisor = ProcessSupervisor(timeout_per_source=60)
-
-# Change Tracking с защитой от зависаний
-result = supervisor.run_change_tracking_source('https://example.com')
-# Гарантия: завершится за 60 секунд или будет убит
+# Или через скрипт (уже настроен)
+./scripts/run_rss_and_tracking.sh
 ```
 
-### Результаты:
-- **До:** Зависания до бесконечности
-- **После:** Максимум 60 секунд на источник
-- **Статистика:** 0 killed в тестах = всё работает быстро
+### Обработка источников:
+```
+for source in sources:
+    [1/50] 🔍 Scanning: example.com
+    try:
+        scan_webpage()
+        [1/50] ✅ Completed: example.com (changed)
+    except TimeoutError:
+        [1/50] ⏱️ Timeout: example.com
+    except Exception:
+        [1/50] ❌ Error: example.com
+    finally:
+        # ВСЕГДА логируем завершение
+        
+    [2/50] 🔍 Scanning: next.com
+    ...
+```
+
+### Преимущества последовательной обработки:
+- **Полный контроль** - видно где именно происходит сбой
+- **Прогресс [1/50]** - понятно сколько осталось
+- **Простота отладки** - последовательное выполнение
+- **Гарантия логирования** - try/finally для каждого источника
+
+### Таймауты (остались как в v3.4):
+- **asyncio.wait_for(60s)** - главный контроль
+- **aiohttp.ClientTimeout(55s)** - HTTP уровень
+- **max_retries=3** - для надежности
 
 ---
 

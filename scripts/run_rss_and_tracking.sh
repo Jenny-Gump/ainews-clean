@@ -69,9 +69,10 @@ if [ $RSS_EXIT_CODE -eq 0 ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Change Tracking scan..."
     
     # Note: Detailed per-source logging is now handled inside the Change Tracking module
-    # The module will log each source, batch progress, and results automatically
+    # The module will log each source with progress [1/50], [2/50], etc.
     
-    python3 core/main.py --change-tracking --scan --batch-size 5 &
+    # Используем последовательное сканирование для полного контроля и логирования
+    python3 core/main.py --change-tracking --scan --sequential &
     TRACKING_PID=$!
     wait $TRACKING_PID
     SCAN_EXIT_CODE=$?

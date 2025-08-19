@@ -47,7 +47,7 @@ Comprehensive error tracking and handling system for RSS Discovery and Change Tr
 
 ## Timeout Configuration
 
-### Current Settings (as of 18 August 2025 - v3.4)
+### Current Settings (as of 19 August 2025 - v4.0)
 
 #### Unified Timeout Strategy
 ```python
@@ -73,11 +73,17 @@ timeout=10  # RSS parsing timeout
 
 ## Retry Logic
 
-### Change Tracking Retries (Updated v3.4)
-- **Max attempts**: 3 (по умолчанию, было 1)
+### Change Tracking Retries (v4.0)
+- **Max attempts**: 3 (по умолчанию)
 - **Retry delay**: Фиксированный 2 секунды
 - **Implementation**: `change_tracking/monitor.py:97-172`
 - **Максимальное время на источник**: 3 × 60 = 180 секунд (3 минуты)
+
+### Sequential Processing (NEW in v4.0)
+- **Processing mode**: Последовательная обработка источников
+- **Logging**: Каждый источник логируется с прогрессом [1/50]
+- **Error handling**: try/finally гарантирует логирование
+- **Implementation**: `change_tracking/monitor.py:532-700`
 
 ```python
 # monitor.py:97

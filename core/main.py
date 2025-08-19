@@ -193,6 +193,12 @@ WORKFLOW С CHANGE TRACKING:
     )
     
     parser.add_argument(
+        '--sequential',
+        action='store_true',
+        help='Использовать последовательное сканирование вместо батчей (рекомендуется)'
+    )
+    
+    parser.add_argument(
         '--extract-urls',
         action='store_true',
         help='Извлечь URL статей из отслеживаемых страниц (используется с --change-tracking)'
@@ -530,17 +536,30 @@ async def run_change_tracking(args):
             if args.complete_scan:
                 logger.info("🎯 Завершаем сканирование - только неотсканированные источники...")
                 monitor = ChangeMonitor()
-                results = await monitor.scan_sources_batch(
-                    batch_size=args.batch_size,
-                    only_unscanned=True
-                )
+                if args.sequential:
+                    results = await monitor.scan_sources_sequential(
+                        only_unscanned=True
+                    )
+                else:
+                    results = await monitor.scan_sources_batch(
+                        batch_size=args.batch_size,
+                        only_unscanned=True
+                    )
             else:
-                logger.info("🔍 Начинаем сканирование источников на изменения...")
+                if args.sequential:
+                    logger.info("🔍 Начинаем ПОСЛЕДОВАТЕЛЬНОЕ сканирование источников...")
+                else:
+                    logger.info("🔍 Начинаем сканирование источников на изменения...")
                 monitor = ChangeMonitor()
-                results = await monitor.scan_sources_batch(
-                    batch_size=args.batch_size,
-                    limit=args.limit
-                )
+                if args.sequential:
+                    results = await monitor.scan_sources_sequential(
+                        limit=args.limit
+                    )
+                else:
+                    results = await monitor.scan_sources_batch(
+                        batch_size=args.batch_size,
+                        limit=args.limit
+                    )
             
             # Показываем результаты
             logger.info(f"\n📊 РЕЗУЛЬТАТЫ СКАНИРОВАНИЯ:")

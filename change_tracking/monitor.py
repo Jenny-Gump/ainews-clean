@@ -486,9 +486,6 @@ class ChangeMonitor:
                 success=True
             )
             
-            # Add delay to simulate real scanning time
-            await asyncio.sleep(3)  # Each batch takes time
-            
             batch_results = await self.scan_multiple_pages(batch)
             
             # Объединяем результаты
@@ -509,10 +506,6 @@ class ChangeMonitor:
                 errors=batch_results['errors'],
                 success=True
             )
-            
-            # Пауза между батчами
-            if i < len(batches):
-                await asyncio.sleep(5)  # Longer pause between batches for realistic timing
         
         # Log final summary
         log_operation(
@@ -528,6 +521,176 @@ class ChangeMonitor:
         )
         
         return combined_results
+    
+    async def scan_sources_sequential(self, limit: Optional[int] = None, only_unscanned: bool = False) -> Dict[str, Any]:
+        """
+        Сканирует источники СТРОГО ПОСЛЕДОВАТЕЛЬНО без батчей
+        
+        Args:
+            limit: Максимальное количество источников для сканирования
+            only_unscanned: Если True, сканирует только неотсканированные источники
+            
+        Returns:
+            Сводные результаты
+        """
+        from app_logging import log_operation, log_error
+        from urllib.parse import urlparse
+        
+        urls = self.load_sources_from_file(only_unscanned=only_unscanned)
+        
+        if limit:
+            urls = urls[:limit]
+        
+        total = len(urls)
+        mode_text = " (unscanned only)" if only_unscanned else ""
+        self.logger.info(f"Sequential scanning {total} sources{mode_text}")
+        
+        # Логируем начало последовательного сканирования
+        log_operation(
+            'change_tracking_sequential_start',
+            phase='change_tracking',
+            message=f'🔄 Starting sequential scan: {total} sources',
+            total_sources=total,
+            mode='sequential',
+            success=True
+        )
+        
+        results = {
+            'total': total,
+            'new': 0,
+            'changed': 0,
+            'unchanged': 0,
+            'errors': 0,
+            'details': []
+        }
+        
+        for i, url in enumerate(urls, 1):
+            source_id = self._get_source_id(url)
+            domain = urlparse(url).netloc
+            
+            # ВСЕГДА логируем начало с прогрессом
+            log_operation(
+                'change_tracking_source_start',
+                phase='change_tracking',
+                message=f'[{i}/{total}] 🔍 Scanning: {domain}',
+                source_id=source_id,
+                url=url,
+                progress=f'{i}/{total}',
+                success=True
+            )
+            
+            try:
+                # Сканируем источник
+                result = await self.scan_webpage(url)
+                
+                # Обновляем счетчики
+                status = result.get('status', 'error')
+                if status == 'new':
+                    results['new'] += 1
+                elif status == 'changed':
+                    results['changed'] += 1
+                elif status == 'unchanged':
+                    results['unchanged'] += 1
+                else:
+                    results['errors'] += 1
+                
+                results['details'].append(result)
+                
+                # Логируем успешное завершение
+                log_operation(
+                    'change_tracking_source_complete',
+                    phase='change_tracking',
+                    message=f'[{i}/{total}] ✅ Completed: {domain} ({status})',
+                    source_id=source_id,
+                    url=url,
+                    status=status,
+                    progress=f'{i}/{total}',
+                    success=True
+                )
+                
+            except asyncio.TimeoutError as e:
+                results['errors'] += 1
+                error_msg = f"Timeout scanning {url} after 60s"
+                self.logger.error(error_msg)
+                
+                # Логируем таймаут
+                log_error('tracking_timeout', error_msg,
+                    source_id=source_id,
+                    url=url,
+                    module='change_tracking.monitor'
+                )
+                
+                log_operation(
+                    'change_tracking_source_timeout',
+                    phase='change_tracking',
+                    message=f'[{i}/{total}] ⏱️ Timeout: {domain}',
+                    source_id=source_id,
+                    url=url,
+                    progress=f'{i}/{total}',
+                    error='Timeout after 60s',
+                    success=False
+                )
+                
+                results['details'].append({
+                    'url': url,
+                    'status': 'error',
+                    'error': 'Timeout after 60s'
+                })
+                
+            except Exception as e:
+                results['errors'] += 1
+                error_msg = f"Error scanning {url}: {str(e)}"
+                self.logger.error(error_msg)
+                
+                # Логируем ошибку
+                log_error('tracking_scan_error', error_msg,
+                    source_id=source_id,
+                    url=url,
+                    error=str(e),
+                    module='change_tracking.monitor'
+                )
+                
+                log_operation(
+                    'change_tracking_source_error',
+                    phase='change_tracking',
+                    message=f'[{i}/{total}] ❌ Error: {domain}',
+                    source_id=source_id,
+                    url=url,
+                    progress=f'{i}/{total}',
+                    error=str(e),
+                    success=False
+                )
+                
+                results['details'].append({
+                    'url': url,
+                    'status': 'error',
+                    'error': str(e)
+                })
+                
+            finally:
+                # ВСЕГДА логируем что источник обработан
+                if i % 10 == 0:  # Каждые 10 источников показываем прогресс
+                    self.logger.info(f"Progress: {i}/{total} sources processed")
+        
+        # Логируем итоговую сводку
+        log_operation(
+            'change_tracking_sequential_complete',
+            phase='change_tracking',
+            message=f'📊 Sequential scan complete: {results["changed"]} changed, {results["new"]} new, {results["unchanged"]} unchanged, {results["errors"]} errors',
+            total=results['total'],
+            changed=results['changed'],
+            new=results['new'],
+            unchanged=results['unchanged'],
+            errors=results['errors'],
+            success=True
+        )
+        
+        self.logger.info(f"Sequential scan complete: {results['new']} new, "
+                        f"{results['changed']} changed, "
+                        f"{results['unchanged']} unchanged, "
+                        f"{results['errors']} errors")
+        
+        return results
     
     def get_tracking_stats(self) -> Dict[str, Any]:
         """Get statistics about tracked pages"""
