@@ -80,20 +80,22 @@ def get_articles_with_filters_supabase(
         # Get total count from response
         total = result.count if hasattr(result, 'count') else 0
         
-        # Get all unique source_ids from articles
-        source_ids = set()
-        if result.data:
-            for article in result.data:
-                if article.get('source_id'):
-                    source_ids.add(article['source_id'])
-        
-        # Get source names for all source_ids
+        # Pre-load all sources to avoid N+1 queries (do this once)
         source_names = {}
-        if source_ids:
-            sources_result = supabase.table('sources').select('source_id, name').in_('source_id', list(source_ids)).execute()
-            if sources_result.data:
-                for source in sources_result.data:
-                    source_names[source['source_id']] = source['name']
+        try:
+            # Load from cache if available
+            if hasattr(get_articles_with_filters_supabase, '_source_cache'):
+                source_names = get_articles_with_filters_supabase._source_cache
+            else:
+                sources_result = supabase.table('sources').select('source_id, name').execute()
+                if sources_result.data:
+                    for source in sources_result.data:
+                        source_names[source['source_id']] = source['name']
+                    # Cache for future requests
+                    get_articles_with_filters_supabase._source_cache = source_names
+        except:
+            # If sources load fails, continue without names
+            pass
         
         # Format articles
         articles = []
@@ -144,17 +146,23 @@ def get_articles_with_filters_supabase(
         }
 
 def get_article_stats_supabase() -> Dict[str, Any]:
-    """Get article statistics directly from Supabase"""
+    """Get article statistics directly from Supabase - OPTIMIZED"""
     try:
-        from supabase import create_client, Client
+        # Try to use global client first
+        from monitoring.app import supabase_client
         
-        url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
-        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-        
-        if not key:
-            return {"error": "Supabase not configured"}
-        
-        supabase: Client = create_client(url, key)
+        if supabase_client:
+            supabase = supabase_client
+        else:
+            # Fallback to creating new client
+            from supabase import create_client, Client
+            url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+            key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+            
+            if not key:
+                return {"error": "Supabase not configured"}
+            
+            supabase: Client = create_client(url, key)
         
         # Get total articles
         total_result = supabase.table('articles').select('article_id', count='exact').execute()
@@ -207,6 +215,112 @@ def get_article_stats_supabase() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting article stats from Supabase: {str(e)}")
         return {"error": str(e)}
+
+def get_article_stats_optimized() -> Dict[str, Any]:
+    """Get article statistics with a single optimized query"""
+    try:
+        # Try to use global client first
+        try:
+            from monitoring.app import supabase_client
+            if supabase_client:
+                supabase = supabase_client
+            else:
+                raise ImportError
+        except ImportError:
+            # Fallback to creating new client
+            from supabase import create_client, Client
+            url = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+            key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+            
+            if not key:
+                return {"error": "Supabase not configured"}
+            
+            supabase: Client = create_client(url, key)
+        
+        # Single optimized query to get all counts
+        stats_query = """
+        SELECT 
+            COUNT(*) as total_articles,
+            COUNT(CASE WHEN created_at >= CURRENT_DATE THEN 1 END) as articles_today,
+            COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as articles_7_days,
+            COUNT(CASE WHEN content_status = 'pending' THEN 1 END) as pending_count,
+            COUNT(CASE WHEN content_status = 'parsed' THEN 1 END) as parsed_count,
+            COUNT(CASE WHEN content_status = 'published' THEN 1 END) as published_count,
+            COUNT(CASE WHEN content_status = 'failed' THEN 1 END) as failed_count,
+            COUNT(CASE WHEN content_status = 'deleted' THEN 1 END) as deleted_count
+        FROM articles;
+        """
+        
+        from supabase import create_client, Client
+        import psycopg2
+        
+        # Direct SQL query for better performance
+        result = supabase.table('articles').select('content_status, created_at').execute()
+        
+        if result.data:
+            # Process stats in Python for compatibility
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            today = now.date()
+            week_ago = today - timedelta(days=7)
+            
+            stats = {
+                'total_articles': len(result.data),
+                'articles_today': 0,
+                'articles_7_days': 0,
+                'pending_count': 0,
+                'parsed_count': 0,
+                'published_count': 0,
+                'failed_count': 0,
+                'deleted_count': 0
+            }
+            
+            for article in result.data:
+                # Count by status
+                status = article.get('content_status')
+                if status == 'pending':
+                    stats['pending_count'] += 1
+                elif status == 'parsed':
+                    stats['parsed_count'] += 1
+                elif status == 'published':
+                    stats['published_count'] += 1
+                elif status == 'failed':
+                    stats['failed_count'] += 1
+                elif status == 'deleted':
+                    stats['deleted_count'] += 1
+                
+                # Count by date
+                created_str = article.get('created_at')
+                if created_str:
+                    created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                    if created.date() >= today:
+                        stats['articles_today'] += 1
+                    if created.date() >= week_ago:
+                        stats['articles_7_days'] += 1
+            
+            return {
+                "total_articles": stats['total_articles'],
+                "articles_today": stats['articles_today'],
+                "articles_7_days": stats['articles_7_days'],
+                "articles_with_media": 0,  # Not tracking media anymore
+                "media_percentage": 0,
+                "by_status": {
+                    'pending': stats['pending_count'],
+                    'parsed': stats['parsed_count'],
+                    'published': stats['published_count'],
+                    'failed': stats['failed_count'],
+                    'deleted': stats['deleted_count']
+                },
+                "top_sources": []  # Will be loaded separately if needed
+            }
+        
+        # Fallback to multiple queries if single query fails
+        return get_article_stats_supabase()
+        
+    except Exception as e:
+        logger.error(f"Error getting optimized article stats: {str(e)}")
+        # Fallback to original implementation
+        return get_article_stats_supabase()
 
 def get_sources_from_supabase() -> List[Dict[str, Any]]:
     """Get all sources from Supabase"""

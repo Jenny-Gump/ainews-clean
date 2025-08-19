@@ -15,10 +15,26 @@ import json
 import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from supabase import create_client, Client
 
 # Load environment variables
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path)
+
+# Initialize global Supabase client
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://mtguynupyltlqiwhmilc.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+supabase_client: Optional[Client] = None
+
+if SUPABASE_KEY:
+    try:
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print(f"✅ Global Supabase client initialized")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize global Supabase client: {e}")
+        supabase_client = None
+else:
+    print("⚠️ Supabase key not configured")
 
 # Custom JSON encoder for datetime objects
 class DateTimeEncoder(json.JSONEncoder):

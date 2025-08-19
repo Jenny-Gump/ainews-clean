@@ -49,7 +49,7 @@ class URLExtractor:
             'blog.google': [r'/technology/ai/'],
             'research.google': [r'/blog/'],
             'deepmind.google': [r'/blog/', r'/discover/'],
-            'news.microsoft.com': [r'/source/topics/ai/'],
+            'news.microsoft.com': [r'/source/features/ai/', r'/source/topics/ai/'],
             'cloud.google.com': [r'/blog/products/ai-machine-learning/'],
             'aws.amazon.com': [r'/blogs/machine-learning/'],
             

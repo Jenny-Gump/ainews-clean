@@ -255,9 +255,24 @@ async def get_articles(
         logger.error(f"Error getting articles: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get articles: {str(e)}")
 
+# Cache for statistics
+_stats_cache = {
+    "data": None,
+    "timestamp": 0
+}
+CACHE_TTL = 60  # Cache for 60 seconds
+
 @router.get("/articles/stats")
 async def get_articles_stats():
-    """Get article statistics"""
+    """Get article statistics with caching"""
+    import time
+    
+    # Check cache
+    current_time = time.time()
+    if _stats_cache["data"] and (current_time - _stats_cache["timestamp"]) < CACHE_TTL:
+        logger.info("Returning cached statistics")
+        return _stats_cache["data"]
+    
     try:
         # Get REAL data from Supabase
         import sys
@@ -266,11 +281,15 @@ async def get_articles_stats():
         
         from core.db_config import DatabaseConfig
         
-        # Get real statistics from Supabase
-        from .core_supabase import get_article_stats_supabase
-        stats = get_article_stats_supabase()
+        # Try optimized version first
+        from .core_supabase import get_article_stats_optimized, get_article_stats_supabase
+        try:
+            stats = get_article_stats_optimized()
+        except:
+            # Fallback to original if optimized fails
+            stats = get_article_stats_supabase()
         
-        return {
+        result = {
             "summary": {
                 "total_articles": stats.get('total_articles', 0),
                 "articles_today": stats.get('articles_today', 0),
@@ -296,6 +315,12 @@ async def get_articles_stats():
             "hourly_activity": {},  # TODO: Implement hourly activity
             "timestamp": datetime.now().isoformat()
         }
+        
+        # Update cache
+        _stats_cache["data"] = result
+        _stats_cache["timestamp"] = current_time
+        
+        return result
         
     except Exception as e:
         logger.error(f"Error getting article stats: {str(e)}")

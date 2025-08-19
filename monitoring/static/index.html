@@ -856,8 +856,12 @@
                     if (!activeFilters.status) {
                         activeFilters.status = 'pending';
                     }
+                    // Load articles first (priority)
                     loadArticlesData();
-                    loadDatabaseStatsArticles();
+                    // Load stats asynchronously after a delay (non-blocking)
+                    setTimeout(() => {
+                        loadDatabaseStatsArticles();
+                    }, 100);
                     // Показываем активный фильтр
                     if (activeFilters.status === 'pending') {
                         showActiveFilter('status', 'Pending Articles');
@@ -3324,6 +3328,12 @@ ${error.stack_trace ? 'Stack:\n' + error.stack_trace : ''}
         
         // Load database stats for Articles tab
         async function loadDatabaseStatsArticles() {
+            // Show loading state for stats
+            document.getElementById('pending-count-articles').textContent = '...';
+            document.getElementById('parsed-count-articles').textContent = '...';
+            document.getElementById('published-count-articles').textContent = '...';
+            document.getElementById('failed-count-articles').textContent = '...';
+            
             try {
                 const response = await fetch('/api/articles/stats');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
