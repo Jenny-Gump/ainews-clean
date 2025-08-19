@@ -1,9 +1,9 @@
 # Change Tracking System - Детальный Flow
 
-**Версия:** 4.0 (19 августа 2025)  
-**Статус:** Production Ready + Sequential Processing  
+**Версия:** 4.1 (19 августа 2025)  
+**Статус:** Production Ready + Memory Management  
 **Основа:** Анализ кода из change_tracking/monitor.py, database.py  
-**Обновления:** Последовательная обработка, полное логирование каждого источника [1/50]
+**Обновления:** Управление памятью, исправление утечек, gc.collect()
 
 ---
 
@@ -174,7 +174,7 @@ GROUP BY is_new, exported_to_articles;
 
 ---
 
-## 🔄 Sequential Processing (v4.0)
+## 🔄 Sequential Processing (v4.0) + Memory Management (v4.1)
 
 ### Новая архитектура - ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА:
 ```bash
@@ -208,6 +208,13 @@ for source in sources:
 - **Прогресс [1/50]** - понятно сколько осталось
 - **Простота отладки** - последовательное выполнение
 - **Гарантия логирования** - try/finally для каждого источника
+
+### Управление памятью (v4.1):
+- **gc.collect()** - периодическая очистка каждые 10 источников
+- **Минимальные results['details']** - только url, status, urls_found
+- **Без markdown в БД** - content='' для экономии памяти
+- **Очистка переменных** - del markdown_content, scraped_data
+- **Обрезка результатов** - хранение только последних 10 записей
 
 ### Таймауты (остались как в v3.4):
 - **asyncio.wait_for(60s)** - главный контроль
