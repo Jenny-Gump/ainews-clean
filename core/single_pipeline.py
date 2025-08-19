@@ -280,6 +280,12 @@ class SingleArticlePipeline:
         except Exception as e:
             error_msg = f"Content parsing failed: {e}"
             logger.error(error_msg)
+            # Логируем критическую ошибку парсинга в JSONL
+            log_error('content_parsing_critical_error', error_msg,
+                     article_id=article['article_id'],
+                     url=article.get('url'),
+                     module='single_pipeline',
+                     error_type='critical_exception')
             log_operation(f'❌ Критическая ошибка парсинга: {str(e)[:50]}...',
                 phase='content_parsing', 
                 success=False,
@@ -454,6 +460,11 @@ class SingleArticlePipeline:
         except Exception as e:
             error_msg = f"WordPress preparation failed: {e}"
             logger.error(error_msg)
+            # Логируем ошибку подготовки WordPress в JSONL
+            log_error('wordpress_preparation_failed', error_msg,
+                     article_id=article['article_id'],
+                     module='single_pipeline',
+                     phase='wordpress_prep')
             return {'success': False, 'error': error_msg}
     
     async def _phase_wordpress_publishing(self, article: Dict[str, Any]) -> Dict[str, Any]:
@@ -735,6 +746,13 @@ class SingleArticlePipeline:
             
         except Exception as e:
             logger.error(f"❌ Критическая ошибка пайплайна: {e}")
+            # Логируем критическую ошибку пайплайна в JSONL
+            from app_logging import log_error
+            log_error('pipeline_critical_error', str(e),
+                     module='single_pipeline',
+                     phase='pipeline_execution',
+                     processed_count=self.processed_count,
+                     success_count=self.success_count)
             self.status = PipelineStatus.ERROR
             await self._notify('on_error', {'error': str(e)})
         

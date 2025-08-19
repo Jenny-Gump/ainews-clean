@@ -405,6 +405,11 @@ class ExtractMediaDownloaderPlaywright:
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения pending медиа: {e}")
+            # Логируем ошибку получения pending медиа в JSONL
+            from app_logging import log_error
+            log_error('pending_media_fetch_failed', str(e),
+                     module='media_processor',
+                     operation='get_pending_media')
             return []
     
     async def download_media_batch(self, media_list: List[Dict]) -> Dict[str, Any]:
@@ -507,6 +512,12 @@ class ExtractMediaDownloaderPlaywright:
             self.logger.warning("⚠️ Процесс скачивания прерван пользователем")
         except Exception as e:
             self.logger.error(f"❌ Ошибка во время скачивания: {e}")
+            # Логируем критическую ошибку скачивания медиа в JSONL
+            from app_logging import log_error
+            log_error('media_download_critical_error', str(e),
+                     module='media_processor',
+                     operation='download_media_batch',
+                     media_count=len(media_list) if media_list else 0)
         finally:
             # Всегда выводим итоговую статистику
             total_stats["total_size_mb"] = round(self.stats['total_size'] / 1024 / 1024, 2)

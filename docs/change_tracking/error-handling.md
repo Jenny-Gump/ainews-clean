@@ -35,30 +35,35 @@ Comprehensive error tracking and handling system for RSS Discovery and Change Tr
 | Error Type | Description | Common Causes |
 |------------|-------------|---------------|
 | `tracking_scan_failed` | Failed after all retries | Site offline, blocking |
-| `tracking_timeout` | Timeout (45s) | Slow site, large page |
+| `tracking_timeout` | Timeout (60s) | Slow site, large page |
 | `tracking_fk_error` | Foreign key violation | Source not in DB |
 | `tracking_db_error` | Database errors | Connection issues |
 | `tracking_url_normalize_error` | URL normalization failed | Invalid URL format |
+| `source_no_urls_extracted` | Source returned 0 URLs | Broken patterns |
+| `changed_source_no_urls` | Changed source but 0 URLs | Pattern mismatch |
+| `unchanged_source_no_urls` | Unchanged source still 0 URLs | Persistent pattern issue |
+| `url_pattern_mismatch` | URL patterns don't match | Outdated patterns |
+| `url_extraction_zero_results` | Final extraction returned 0 | Multiple pattern failures |
 
 ## Timeout Configuration
 
-### Current Settings (as of August 2025)
+### Current Settings (as of 18 August 2025 - v3.4)
 
-#### Firecrawl Client
+#### Unified Timeout Strategy
 ```python
-# services/firecrawl_client.py:89-92
+# change_tracking/monitor.py:223
+timeout=60  # Главный таймаут на источник (asyncio.wait_for)
+
+# services/firecrawl_client.py:90
 timeout=aiohttp.ClientTimeout(
-    total=60,           # Total request timeout
-    sock_connect=10,    # Connection timeout
-    sock_read=30        # Socket read timeout
+    total=55  # HTTP таймаут меньше главного для правильной иерархии
 )
 ```
 
-#### Change Tracking
-```python
-# change_tracking/monitor.py:229
-timeout=45  # Asyncio timeout for scraping
-```
+#### Иерархия таймаутов
+1. **60 секунд** - asyncio.wait_for в monitor.py (главный контроль)
+2. **55 секунд** - aiohttp ClientTimeout (HTTP уровень)
+3. **Результат** - предотвращение зависаний типа cloud.google.com
 
 #### RSS Discovery
 ```python
@@ -68,13 +73,18 @@ timeout=10  # RSS parsing timeout
 
 ## Retry Logic
 
-### Change Tracking Retries
-- **Max attempts**: 2 (configurable)
-- **Retry delay**: Exponential backoff (2s, 4s, 8s...)
-- **Implementation**: `change_tracking/monitor.py:163-166`
+### Change Tracking Retries (Updated v3.4)
+- **Max attempts**: 3 (по умолчанию, было 1)
+- **Retry delay**: Фиксированный 2 секунды
+- **Implementation**: `change_tracking/monitor.py:97-172`
+- **Максимальное время на источник**: 3 × 60 = 180 секунд (3 минуты)
 
 ```python
-wait_time = 2 ** (attempt + 1)  # 2s, 4s, 8s...
+# monitor.py:97
+async def scan_webpage(self, url: str, max_retries: int = 3)
+
+# monitor.py:171-172
+wait_time = 2  # Фиксированная задержка 2 секунды
 await asyncio.sleep(wait_time)
 ```
 

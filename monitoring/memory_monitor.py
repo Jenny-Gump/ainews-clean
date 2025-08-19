@@ -15,8 +15,7 @@ from typing import Dict, List, Callable, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 
-# Импортируем log_error для централизованного логирования
-from app_logging import log_error
+# Legacy: log_error импорт удален - больше не нужен
 
 
 class MemoryAlertLevel(Enum):
@@ -240,9 +239,7 @@ class SystemMemoryMonitor:
                 # Анализируем использование памяти
                 self._analyze_memory_usage(snapshot)
                 
-                # Сохраняем метрики в БД если доступно
-                if self.monitoring_db:
-                    self._save_memory_metrics(snapshot)
+                # Legacy метрики памяти не используются (убрано для устранения ошибок)
                 
                 time.sleep(self.check_interval)
                 
@@ -442,30 +439,7 @@ class SystemMemoryMonitor:
         except Exception as e:
             self.logger.error(f"Error sending memory alert: {e}")
     
-    def _save_memory_metrics(self, snapshot: MemorySnapshot):
-        """Сохранение метрик памяти в БД"""
-        try:
-            metrics_data = {
-                'timestamp': snapshot.timestamp,
-                'total_memory_mb': snapshot.total_memory_mb,
-                'used_memory_mb': snapshot.used_memory_mb,
-                'available_memory_mb': snapshot.available_memory_mb,
-                'processes_count': len(snapshot.processes),
-                'ainews_processes_count': len(snapshot.ainews_processes),
-                'ainews_memory_mb': sum(p.memory_mb for p in snapshot.ainews_processes),
-                'top_consumer_memory_mb': snapshot.top_memory_consumers[0].memory_mb if snapshot.top_memory_consumers else 0
-            }
-            
-            # Сохраняем через API мониторинга
-            self.monitoring_db.save_memory_metrics(metrics_data)
-            
-        except Exception as e:
-            self.logger.error(f"Error saving memory metrics: {e}")
-            # Логируем в централизованное хранилище для анализа
-            log_error('memory_metrics_save_failed', str(e),
-                     operation='save_memory_metrics',
-                     module='memory_monitor')
-    
+    # Legacy _save_memory_metrics метод удален - метрики памяти не сохраняются
     def _save_alert_to_db(self, alert_data: Dict[str, Any]):
         """Сохранение алерта в БД"""
         try:

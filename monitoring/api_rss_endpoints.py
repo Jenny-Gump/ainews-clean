@@ -175,15 +175,15 @@ async def get_articles_stats():
         
         for status in statuses:
             if status == 'deleted':
-                # For deleted status, count articles with is_deleted = 1
-                result = supabase.table('articles').select('article_id', count='exact').eq('is_deleted', 1).execute()
+                # For deleted status, count articles with is_deleted = true
+                result = supabase.table('articles').select('article_id', count='exact').eq('is_deleted', True).execute()
             else:
-                # For other statuses, exclude deleted articles (is_deleted = 0 or NULL)
-                result = supabase.table('articles').select('article_id', count='exact').eq('content_status', status).neq('is_deleted', 1).execute()
+                # For other statuses, exclude deleted articles (is_deleted = false or NULL)
+                result = supabase.table('articles').select('article_id', count='exact').eq('content_status', status).eq('is_deleted', False).execute()
             status_counts[status] = result.count if hasattr(result, 'count') else 0
         
         # Get total count excluding deleted articles
-        total_result = supabase.table('articles').select('article_id', count='exact').neq('is_deleted', 1).execute()
+        total_result = supabase.table('articles').select('article_id', count='exact').eq('is_deleted', False).execute()
         total = total_result.count if hasattr(total_result, 'count') else 0
         
         return {

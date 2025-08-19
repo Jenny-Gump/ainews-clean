@@ -84,7 +84,7 @@ def migrate_articles():
                 'llm_content_raw': article['llm_content_raw'],
                 'llm_translation_raw': article['llm_translation_raw'],
                 'llm_tags_raw': article['llm_tags_raw'],
-                'is_deleted': article['is_deleted'],
+                'is_deleted': bool(article['is_deleted']),  # Convert 0/1 to boolean
                 'deleted_at': deleted_at,
                 'deleted_by': article['deleted_by']
             }

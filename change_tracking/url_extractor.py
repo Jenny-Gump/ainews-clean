@@ -23,6 +23,9 @@ class URLExtractor:
         # Загружаем маппинг источников для правильного source_id
         self.tracking_sources = self._load_tracking_sources()
         
+        # Для отслеживания уже залогированных ошибок паттернов (чтобы не спамить)
+        self._logged_pattern_errors = set()
+        
         # Паттерны для поиска ссылок в markdown
         self.markdown_link_patterns = [
             r'\[([^\]]*)\]\((https?://[^)]+)\)',     # [text](url)
@@ -34,7 +37,7 @@ class URLExtractor:
         self.domain_patterns = {
             # AI Companies
             'hai.stanford.edu': [r'/news/[^/]+'],  # Только статьи в /news/
-            'openai.com': [r'/blog/', r'/news/'],
+            'openai.com': [r'/blog/', r'/news/', r'/index/', r'/[^/]+/$'],
             'anthropic.com': [r'/news/', r'/research/'],
             'mistral.ai': [r'/news/[^/]+'],
             'cohere.com': [r'/blog/[^/]+', r'/research/[^/]+'],
@@ -109,7 +112,7 @@ class URLExtractor:
             # Other
             'writer.com': [r'/engineering/[^/]+'],
             'uizard.io': [r'/blog/[^/]+'],
-            'soundhound.com': [r'/blog/[^/]+'],
+            'soundhound.com': [r'/voice-ai-blog/[^/]+'],
             'audioscenic.com': [r'/news/[^/]+'],
             'suno.com': [r'/blog/[^/]+'],
             
@@ -265,7 +268,7 @@ class URLExtractor:
             'deepmind.google', 'new.abb.com', 'scale.com', 'stability.ai', 'waymo.com', 'c3.ai', 'crusoe.ai', 'cursor.com',
             'databricks.com', 'research.google', 'instabase.com', 'kinovarobotics.com', 'kuka.com', 'manus.im',
             'openevidence.com', 'huggingface.co', 'pathai.com', 'www.perplexity.ai', 'soundhound.com',
-            'uizard.io', 'writer.com'
+            'uizard.io', 'writer.com', 'b12.io'
         ]
         
         if any(domain in source_page_url for domain in escape_sources):
@@ -319,13 +322,25 @@ class URLExtractor:
         
         # Log to operations for monitoring
         try:
+            # Если 0 URLs - это НЕ успех
+            success = len(unique_urls) > 0
             log_operation('change_tracking_urls_extracted',
                 phase='change_tracking',
                 source_url=source_page_url,
                 urls_found=len(unique_urls),
                 source_domain=source_domain,
-                success=True
+                success=success
             )
+            
+            # Если 0 URLs - также логируем как ошибку
+            if not success:
+                from app_logging import log_error
+                error_msg = f"URL extraction failed: 0 URLs from {source_domain}"
+                self.logger.error(f"❌ {error_msg} - check patterns in url_extractor.py")
+                log_error('url_extraction_zero_results', error_msg,
+                         source_url=source_page_url,
+                         source_domain=source_domain,
+                         module='change_tracking.url_extractor')
         except Exception as e:
             self.logger.debug(f"Failed to log operation: {e}")
         
@@ -476,6 +491,17 @@ class URLExtractor:
                 if re.search(pattern, url_path, re.IGNORECASE):
                     return True
             # Если не совпал ни один паттерн - отклоняем
+            # ЛОГИРОВАНИЕ: паттерны не работают для этого домена (только раз за сессию)
+            if source_domain not in self._logged_pattern_errors:
+                self._logged_pattern_errors.add(source_domain)
+                from app_logging import log_error
+                error_msg = f"Pattern mismatch for {source_domain}: URL paths don't match configured patterns: {allowed_patterns}"
+                self.logger.error(f"❌ {error_msg}")
+                log_error('url_pattern_mismatch', error_msg,
+                         domain=source_domain,
+                         sample_url_path=url_path, 
+                         patterns=str(allowed_patterns),
+                         module='change_tracking.url_extractor')
             return False
             
         # Для неизвестных доменов используем общие новостные паттерны

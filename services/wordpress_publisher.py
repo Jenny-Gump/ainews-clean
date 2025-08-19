@@ -454,36 +454,85 @@ class WordPressPublisher:
             content = response.choices[0].message.content.strip()
             logger.debug(f"Tags response: {content}")
             
+            # Log raw response for debugging
+            logger.debug(f"Raw DeepSeek response for tags (first 500 chars): {content[:500]}")
+            from app_logging import log_operation
+            log_operation('DeepSeek tags raw response received',
+                processing_stage='tag_generation_parsing',
+                article_id=translated_article.get('article_id'),
+                response_length=len(content),
+                raw_response=content[:1000]  # Save first 1000 chars for analysis
+            )
+            
             # Try to extract JSON array
             try:
                 if content.startswith('['):
                     tags = json.loads(content)
+                    logger.debug(f"Parsed tags directly from JSON: {tags}")
                 else:
                     # Try to find JSON array in the response
                     import re
                     json_match = re.search(r'\[.*?\]', content, re.DOTALL)
                     if json_match:
                         tags = json.loads(json_match.group())
+                        logger.debug(f"Parsed tags from regex match: {tags}")
                     else:
                         logger.warning(f"No JSON array found in tags response: {content}")
+                        from app_logging import log_error
+                        log_error('tag_parsing_no_json', 'No JSON array found in DeepSeek response',
+                            module='wordpress_publisher',
+                            article_id=translated_article.get('article_id'),
+                            response_preview=content[:200]
+                        )
                         return []
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse tags JSON: {e}. Response: {content}")
+                from app_logging import log_error
+                log_error('tag_parsing_json_decode_error', f'JSON decode error: {str(e)}',
+                    module='wordpress_publisher',
+                    article_id=translated_article.get('article_id'),
+                    response_preview=content[:200],
+                    error_details=str(e)
+                )
                 return []
             
             # Validate and limit tags
             if not isinstance(tags, list):
                 logger.warning(f"Tags is not a list: {tags}")
+                from app_logging import log_error
+                log_error('tag_validation_not_list', f'Tags is not a list: {type(tags)}',
+                    module='wordpress_publisher',
+                    article_id=translated_article.get('article_id'),
+                    tags_value=str(tags)[:200]
+                )
                 return []
             
             # Ensure tags are strings and limit to 5
             tags = [str(tag) for tag in tags[:5]]
             
             logger.info(f"Generated tags: {tags}")
+            
+            # Log successful tag generation with details
+            from app_logging import log_operation
+            log_operation(f'Tags successfully generated and validated: {tags}',
+                processing_stage='tag_generation_complete',
+                article_id=translated_article.get('article_id'),
+                tags_count=len(tags),
+                tags_list=tags,
+                success=True
+            )
+            
             return tags
             
         except Exception as e:
             logger.error(f"Failed to generate tags: {e}")
+            from app_logging import log_error
+            log_error('tag_generation_unexpected_error', f'Unexpected error in tag generation: {str(e)}',
+                module='wordpress_publisher',
+                article_id=translated_article.get('article_id') if 'translated_article' in locals() else 'unknown',
+                error_type=type(e).__name__,
+                error_details=str(e)
+            )
             return []
     
     def _build_llm_prompt(self, article: Dict[str, Any]) -> str:
@@ -577,8 +626,8 @@ class WordPressPublisher:
                     'content': wp_data['content'],
                     'excerpt': wp_data.get('excerpt'),
                     'slug': wp_data['slug'],
-                    'categories': wp_data.get('categories', []),
-                    'tags': wp_data.get('tags', []),
+                    'categories': json.dumps(wp_data.get('categories', []), ensure_ascii=False),
+                    'tags': json.dumps(wp_data.get('tags', []), ensure_ascii=False),
                     '_yoast_wpseo_title': wp_data.get('_yoast_wpseo_title'),
                     '_yoast_wpseo_metadesc': wp_data.get('_yoast_wpseo_metadesc'),
                     'focus_keyword': wp_data.get('focus_keyword'),
@@ -890,9 +939,16 @@ class WordPressPublisher:
     
     def _prepare_wordpress_post(self, article: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare article data for WordPress API"""
-        # Parse JSON fields
-        categories = json.loads(article['categories']) if article['categories'] else []
-        tags = json.loads(article['tags']) if article['tags'] else []
+        # Parse JSON fields - handle both string and list formats
+        if isinstance(article.get('categories'), str):
+            categories = json.loads(article['categories']) if article['categories'] else []
+        else:
+            categories = article.get('categories', [])
+            
+        if isinstance(article.get('tags'), str):
+            tags = json.loads(article['tags']) if article['tags'] else []
+        else:
+            tags = article.get('tags', [])
         
         # Get category mapping
         category_mapping = self.get_category_tag_mapping()
@@ -1217,6 +1273,18 @@ class WordPressPublisher:
                 tag = response.json()
                 logger.info(f"Created tag '{tag_name}' with ID {tag['id']}")
                 return tag['id']
+            elif response.status_code == 400:
+                # Tag already exists, try to get its ID from the error response
+                try:
+                    error_data = response.json()
+                    if error_data.get('code') == 'term_exists' and error_data.get('data', {}).get('term_id'):
+                        tag_id = error_data['data']['term_id']
+                        logger.info(f"Tag '{tag_name}' already exists with ID {tag_id}")
+                        return tag_id
+                except:
+                    pass
+                logger.error(f"Failed to create tag '{tag_name}': {response.status_code}")
+                return None
             else:
                 logger.error(f"Failed to create tag '{tag_name}': {response.status_code}")
                 return None

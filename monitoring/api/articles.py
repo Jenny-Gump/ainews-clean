@@ -33,8 +33,8 @@ async def get_article_statuses():
         status_list = []
         
         for status in statuses:
-            # Count articles for this status (exclude is_deleted = 1)
-            result = supabase.table('articles').select('article_id', count='exact').eq('content_status', status).neq('is_deleted', 1).execute()
+            # Count articles for this status (exclude is_deleted = true)
+            result = supabase.table('articles').select('article_id', count='exact').eq('content_status', status).eq('is_deleted', False).execute()
             count = result.count if hasattr(result, 'count') else 0
             
             if count > 0:  # Only include statuses that have articles
@@ -135,7 +135,7 @@ async def get_article_sources():
         if sources_result.data:
             for source in sources_result.data:
                 # Get count of articles for this source (excluding deleted articles)
-                articles_check = supabase.table('articles').select('article_id', count='exact').eq('source_id', source['source_id']).neq('is_deleted', 1).execute()
+                articles_check = supabase.table('articles').select('article_id', count='exact').eq('source_id', source['source_id']).eq('is_deleted', False).execute()
                 article_count = articles_check.count if hasattr(articles_check, 'count') else 0
                 
                 if article_count > 0:  # Only include sources that have articles
@@ -352,18 +352,18 @@ async def bulk_delete_articles_legacy(request: Request):
         
         for article_id in article_ids:
             # Check if article exists and is not already deleted
-            check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', 0).execute()
+            check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', False).execute()
             if not check_result.data:
                 not_found.append(article_id)
                 continue
             
             # Soft delete article
             update_result = supabase.table('articles').update({
-                'is_deleted': 1,
+                'is_deleted': True,
                 'deleted_at': datetime.now().isoformat(),
                 'deleted_by': 'dashboard_bulk',
                 'content_status': 'deleted'
-            }).eq('article_id', article_id).eq('is_deleted', 0).execute()
+            }).eq('article_id', article_id).eq('is_deleted', False).execute()
             
             if update_result.data:
                 deleted_count += 1
@@ -544,18 +544,18 @@ async def bulk_delete_articles(article_ids: List[str]):
         
         for article_id in article_ids:
             # Check if article exists and is not already deleted
-            check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', 0).execute()
+            check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', False).execute()
             if not check_result.data:
                 not_found.append(article_id)
                 continue
             
             # Soft delete article
             update_result = supabase.table('articles').update({
-                'is_deleted': 1,
+                'is_deleted': True,
                 'deleted_at': datetime.now().isoformat(),
                 'deleted_by': 'dashboard_bulk',
                 'content_status': 'deleted'
-            }).eq('article_id', article_id).eq('is_deleted', 0).execute()
+            }).eq('article_id', article_id).eq('is_deleted', False).execute()
             
             if update_result.data:
                 deleted_count += 1

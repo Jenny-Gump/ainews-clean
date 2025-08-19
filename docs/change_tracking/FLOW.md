@@ -1,9 +1,9 @@
 # Change Tracking System - Детальный Flow
 
-**Версия:** 3.3 (17 августа 2025)  
-**Статус:** Production Ready + Timeout Protection via Process Supervisor  
+**Версия:** 3.4 (18 августа 2025)  
+**Статус:** Production Ready + Unified Timeout Strategy  
 **Основа:** Анализ кода из change_tracking/monitor.py, database.py и process_supervisor.py  
-**Обновления:** MVP решение зависаний через Process Supervisor, упрощены таймауты
+**Обновления:** Единая стратегия таймаутов (60 сек на источник), 3 retry по умолчанию
 
 ---
 
@@ -26,8 +26,9 @@
 ### ФАЗА 1: Сканирование источников (`--scan`)
 
 #### Шаг 1.1: Firecrawl API вызов
-- **Код:** `monitor.py:188-198`
+- **Код:** `monitor.py:218-224`
 - **API:** `client.scrape_url(url, formats=['markdown', 'changeTracking'])`
+- **Таймаут:** 60 секунд (asyncio.wait_for)
 - **Результат:** `markdown_content` + `change_status` (`new`/`changed`/`unchanged`)
 
 #### Шаг 1.2: Обработка статуса страницы
@@ -173,17 +174,22 @@ GROUP BY is_new, exported_to_articles;
 
 ---
 
-## 🛡️ Process Supervisor - Защита от зависаний (v3.3)
+## 🛡️ Timeout Strategy - Единая стратегия таймаутов (v3.4)
 
-### Новый компонент системы:
-**Файл:** `core/process_supervisor.py`  
-**Цель:** Изоляция источников и гарантия от зависаний
+### Новая конфигурация таймаутов:
+**Главный таймаут:** 60 секунд на источник (asyncio.wait_for в monitor.py)  
+**HTTP таймаут:** 55 секунд (aiohttp ClientTimeout в FirecrawlClient)  
+**Retry:** 3 попытки по умолчанию (max_retries=3)
 
-### Как работает:
-1. **Каждый источник в отдельном процессе** - полная изоляция
-2. **Жёсткий таймаут 60 секунд** - subprocess.run(timeout=60)
-3. **SIGKILL при превышении** - принудительное завершение
-4. **Статистика** - successful/skipped/killed/errors
+### Иерархия таймаутов:
+1. **asyncio.wait_for(60s)** - главный контроль в monitor.py
+2. **aiohttp.ClientTimeout(55s)** - HTTP уровень в FirecrawlClient
+3. **Process Supervisor(60s)** - резервная защита от зависаний
+
+### Преимущества:
+- **Простота** - один понятный таймаут на источник
+- **Надежность** - правильная иерархия предотвращает зависания
+- **Гибкость** - 3 retry дают шанс временным сбоям
 
 ### Использование:
 ```python
@@ -212,10 +218,10 @@ result = supervisor.run_change_tracking_source('https://example.com')
 4. **Лимит 100** URL за экспорт
 5. **Process Supervisor** - защита от зависаний (NEW в v3.3)
 
-### Решённые проблемы (v3.3):
-1. ✅ **Зависания** - Process Supervisor с таймаутом 60 сек
-2. ✅ **Retry усугубляет** - убраны retry (max_retries=1)
-3. ✅ **Конфликт таймаутов** - упрощена иерархия таймаутов
+### Решённые проблемы (v3.4):
+1. ✅ **Зависания** - Единый таймаут 60 сек + правильная иерархия
+2. ✅ **cloud.google.com зависание** - asyncio timeout > aiohttp timeout
+3. ✅ **Retry оптимизация** - 3 попытки вместо 1 для надежности
 
 ### Оставшиеся проблемы:
 1. **articles НЕ имеет UNIQUE на url** - возможны дубли RSS vs tracking

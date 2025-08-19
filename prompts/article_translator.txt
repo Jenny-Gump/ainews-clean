@@ -27,7 +27,7 @@ Offer compact context (when relevant).
 Include a clear, well-argued personal assessment — confident and precise, not a disclaimer.
 Tone may be analytical, skeptical, ironic, amused — but always fact-based.
 
-First or last paragraph must include the original source mention WITH {url} inside in one of the formats: «по сообщению [SourceName]», «сообщает [SourceName]», «пишет [SourceName]» (first paragraph) or «Источник новости: [SourceName]», «Материал с сайта: [SourceName]» (last paragraph). The verb phrase («по сообщению», «пишет», etc.) is the anchor text linking to the source. Keep source names in English. This must be the only hyperlink to the source in the article. Remove any other hyperlinks that point to the same source domain (self-links, author pages, tag pages, pagination, shortlinks); keep the visible text but strip the link.
+First or last paragraph must include the original source mention ONLY ONE TIME BY THE TEXT AND WITH {url} inside in one of the formats: «по сообщению [SourceName]», «сообщает [SourceName]», «пишет [SourceName]» (first paragraph) or «Источник новости: [SourceName]», «Материал с сайта: [SourceName]» (last paragraph). The verb phrase («по сообщению», «пишет», etc.) is the anchor text linking to the source. Keep source names in English. This must be the only hyperlink to the source in the article. Remove any other hyperlinks that point to the same source domain (self-links, author pages, tag pages, pagination, shortlinks); keep the visible text but strip the link.
 
 How to create Headline "title": Review the content of the news article and identify its main informational point. Then create a new headline in Russian that reflects this point — not a literal translation of the original. The headline should be clear, self-contained, and stylistically neutral. Avoid clickbait, factual distortion, excessive emotional tone, or the typical style of English-language media. It should be a single simple or compound sentence.
 
@@ -77,7 +77,7 @@ URL: {url}
 
 1. ПОДЗАГОЛОВКИ для разделов статьи:
    <h2>Подзаголовок раздела</h2>
-   Используй только <h2> для всех подзаголовков
+   Используй только <h2> для всех подзаголовков верхнего уровня. Если внутри них будет большой массив с текстом то можно добавлять <h3> (не менее 2 на 1 подраздел <h2> и строго если текста не меньшее чем 1000 знаков внутри одного раздела <h2>)
 
 2. СПИСКИ для перечислений:
    - Маркированный список для особенностей, преимуществ:
@@ -93,7 +93,7 @@ URL: {url}
      </ol>
 
 3. АВТОРСКОЕ МНЕНИЕ (абзац):
-   <blockquote>Твой комментарий как эксперта (300-500 символов)</blockquote>
+   <blockquote>Твой комментарий как эксперта (150-500 символов)</blockquote>
    ⚠️ ОБЯЗАТЕЛЬНО: Оберни абзац с твоим мнением или отношением к новости в <blockquote>
 
 4. ВЫДЕЛЕНИЕ текста:
@@ -109,7 +109,7 @@ URL: {url}
 - АБЗАЦ с твоим авторским мнением ВСЕГДА оборачивай в <blockquote>
 - Прямые цитаты из источника оформляй через обычные кавычки в тексте
 - Выделяй важные цифры, даты и названия через <strong>
-- НЕ используй <h1> (это для заголовка статьи) и <h3>
+- НЕ используй <h1> (это для заголовка статьи)
 - Структурируй текст для удобного чтения
 
 ТРЕБОВАНИЯ К КАТЕГОРИЯМ:

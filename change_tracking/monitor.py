@@ -94,13 +94,13 @@ class ChangeMonitor:
             clean_domain = clean_domain[4:]
         return clean_domain
     
-    async def scan_webpage(self, url: str, max_retries: int = 1) -> Dict[str, Any]:
+    async def scan_webpage(self, url: str, max_retries: int = 3) -> Dict[str, Any]:
         """
-        Сканирует веб-страницу и отслеживает изменения (упрощенная версия без retry)
+        Сканирует веб-страницу и отслеживает изменения
         
         Args:
             url: URL веб-страницы для мониторинга
-            max_retries: Максимальное количество попыток (по умолчанию 1 - без retry)
+            max_retries: Максимальное количество попыток (по умолчанию 3)
             
         Returns:
             Dict с результатами мониторинга
@@ -129,14 +129,18 @@ class ChangeMonitor:
             if result['status'] != 'error' or not self._is_retryable_error(result.get('error', '')):
                 # Log the result for this source
                 if result['status'] == 'changed':
+                    urls_found = result.get('extracted_urls', 0)
+                    # Если 0 URLs - это ОШИБКА, не успех
+                    success = urls_found > 0
+                    message = f'✅ Changed: {domain} ({urls_found} new URLs)' if success else f'❌ Changed but 0 URLs: {domain}'
                     log_operation(
                         'change_tracking_source_changed',
                         phase='change_tracking',
-                        message=f'✅ Changed: {domain} ({result.get("extracted_urls", 0)} new URLs)',
+                        message=message,
                         source_id=source_id,
                         url=url,
-                        urls_found=result.get('extracted_urls', 0),
-                        success=True
+                        urls_found=urls_found,
+                        success=success
                     )
                 elif result['status'] == 'new':
                     log_operation(
@@ -148,13 +152,17 @@ class ChangeMonitor:
                         success=True
                     )
                 elif result['status'] == 'unchanged':
+                    # Unchanged тоже может быть ошибкой если источник постоянно возвращает 0 URLs
+                    urls_found = result.get('extracted_urls', 0)
+                    success = True  # unchanged обычно OK, но если 0 URLs - проблема логируется отдельно
                     log_operation(
                         'change_tracking_source_unchanged',
                         phase='change_tracking',
-                        message=f'⏸️ No changes: {domain}',
+                        message=f'⏸️ No changes: {domain} ({urls_found} URLs extracted)',
                         source_id=source_id,
                         url=url,
-                        success=True
+                        urls_found=urls_found,
+                        success=success
                     )
                 return result
             
@@ -206,13 +214,13 @@ class ChangeMonitor:
             # Убрана искусственная задержка для ускорения
             
             async with self.firecrawl as client:
-                # Скрейпим страницу с changeTracking с уменьшенным таймаутом
+                # Скрейпим страницу с changeTracking
                 scraped_data = await asyncio.wait_for(
                     client.scrape_url(
                         url,
                         formats=['markdown', 'changeTracking']
                     ),
-                    timeout=30  # Уменьшен таймаут до 30 секунд
+                    timeout=60  # Единый таймаут 60 секунд на источник
                 )
                 
                 # Извлекаем данные
@@ -315,6 +323,13 @@ class ChangeMonitor:
                             self.logger.info(f"Extracted {extracted_urls} URLs from {url} (CHANGED)")
                         else:
                             result['extracted_urls'] = 0
+                            # Источник изменился но URL не найдены - критическая ошибка
+                            source_id = self._get_source_id(url)
+                            error_msg = f"CHANGED source {source_id} but extracted 0 URLs"
+                            self.logger.error(f"❌ {error_msg}")
+                            log_error('changed_source_no_urls', error_msg,
+                                     source_id=source_id, url=url, 
+                                     module='change_tracking.monitor')
                     except Exception as e:
                         self.logger.warning(f"Error extracting URLs from {url}: {e}")
                         result['extracted_urls'] = 0
@@ -327,6 +342,13 @@ class ChangeMonitor:
                             self.logger.info(f"Extracted {extracted_urls} URLs from {url} (UNCHANGED)")
                         else:
                             result['extracted_urls'] = 0
+                            # Источник не изменился но URL тоже не найдены - паттерны сломаны
+                            source_id = self._get_source_id(url)
+                            error_msg = f"UNCHANGED source {source_id} still has 0 URLs"
+                            self.logger.error(f"❌ {error_msg}")
+                            log_error('unchanged_source_no_urls', error_msg,
+                                     source_id=source_id, url=url,
+                                     module='change_tracking.monitor')
                     except Exception as e:
                         self.logger.warning(f"Error extracting URLs from {url}: {e}")
                         result['extracted_urls'] = 0
@@ -336,14 +358,14 @@ class ChangeMonitor:
                     result['extracted_urls'] = 0
                 
         except asyncio.TimeoutError as e:
-            error_msg = f"Timeout scanning {url} after 30s"
+            error_msg = f"Timeout scanning {url} after 60s"
             self.logger.error(error_msg)
             
             # Логируем таймаут в errors.jsonl
             log_error('tracking_timeout', error_msg,
                      url=url,
                      module='monitor',
-                     timeout_seconds=30)
+                     timeout_seconds=60)
             
             # Принудительно закрыть сессию чтобы не зависало
             if hasattr(self, 'firecrawl') and self.firecrawl:
@@ -353,7 +375,7 @@ class ChangeMonitor:
                 except Exception as close_error:
                     self.logger.warning(f"Error closing Firecrawl session: {close_error}")
             result.update({
-                'error': f'Timeout after 30s',
+                'error': f'Timeout after 60s',
                 'status': 'error'
             })
         except Exception as e:
@@ -599,7 +621,22 @@ class ChangeMonitor:
             )
             
             if not extracted_urls:
-                self.logger.debug(f"No URLs extracted from {source_page_url}")
+                # КРИТИЧЕСКАЯ ОШИБКА: источник не вернул URL - паттерны могут быть сломаны
+                source_id = self._get_source_id(source_page_url)
+                domain = urlparse(source_page_url).netloc
+                
+                # Двойное логирование для видимости проблемы
+                error_msg = f"Source {source_id} ({domain}) returned 0 URLs - patterns may be broken"
+                self.logger.error(f"❌ {error_msg}")
+                
+                # Централизованное логирование для анализа
+                log_error('source_no_urls_extracted', 
+                         error_msg,
+                         source_id=source_id,
+                         url=source_page_url,
+                         domain=domain,
+                         module='change_tracking.monitor',
+                         operation='extract_article_urls')
                 return 0
             
             # Получаем существующие URL для этого источника

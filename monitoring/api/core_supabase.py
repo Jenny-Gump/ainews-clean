@@ -41,9 +41,9 @@ def get_articles_with_filters_supabase(
         
         supabase: Client = create_client(url, key)
         
-        # Build query - exclude deleted articles (is_deleted = 1)
+        # Build query - exclude deleted articles (is_deleted = true)
         # Note: Can't use sources!inner() because there's no foreign key relationship
-        query = supabase.table('articles').select('*', count='exact').not_.eq('is_deleted', 1)
+        query = supabase.table('articles').select('*', count='exact').not_.eq('is_deleted', True)
         
         # Apply filters
         if status:

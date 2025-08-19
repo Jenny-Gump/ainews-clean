@@ -186,7 +186,6 @@ CREATE TABLE wordpress_articles (
 - `wordpress_articles_pkey` - PRIMARY KEY на `id` (UUID)
 - `wordpress_articles_wordpress_id_key` - UNIQUE на `wordpress_id`
 - `idx_wordpress_articles_article_id` - INDEX на `article_id`
-- `idx_wp_article` - INDEX на `article_id` (дублирующий)
 - `idx_wordpress_articles_status` - INDEX на `translation_status`
 - `idx_wordpress_articles_wp_post_id` - INDEX на `wp_post_id`
 

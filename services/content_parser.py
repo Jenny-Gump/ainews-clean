@@ -132,6 +132,12 @@ class ContentParser:
         except Exception as e:
             self.stats['database_failures'] += 1
             self.logger.error(f"Failed to save content for {article_id}: {e}")
+            # Логируем ошибку сохранения контента в JSONL
+            from app_logging import log_error
+            log_error('content_save_failed', str(e),
+                     article_id=article_id,
+                     module='content_parser',
+                     operation='save_article_content')
             return False
     
     def _mark_article_failed(self, article_id: str, error_message: str):
@@ -146,6 +152,12 @@ class ContentParser:
                 
         except Exception as e:
             self.logger.error(f"Failed to mark article {article_id} as failed: {e}")
+            # Логируем ошибку пометки статьи как failed в JSONL
+            from app_logging import log_error
+            log_error('article_mark_failed_error', str(e),
+                     article_id=article_id,
+                     module='content_parser',
+                     operation='mark_article_failed')
     
     async def _clean_content_with_deepseek(self, raw_markdown: str, url: str) -> Dict[str, Any]:
         """Clean content with DeepSeek AI and add image placeholders"""
@@ -432,6 +444,16 @@ class ContentParser:
             error_message = str(e)
             self.logger.error(f"Failed to parse article {article_id} in {processing_time:.1f}s: {error_message}")
             
+            # Логируем ошибку парсинга статьи в JSONL
+            from app_logging import log_error
+            log_error('article_parsing_failed', error_message,
+                     article_id=article_id,
+                     url=url,
+                     source_id=source_id,
+                     processing_time=processing_time,
+                     module='content_parser',
+                     operation='parse_article')
+            
             # Mark article as failed in database
             self._mark_article_failed(article_id, error_message)
             
@@ -481,6 +503,11 @@ class ContentParser:
                 
         except Exception as e:
             self.logger.error(f"Failed to get pending articles: {e}")
+            # Логируем ошибку получения pending статей в JSONL
+            from app_logging import log_error
+            log_error('pending_articles_fetch_failed', str(e),
+                     module='content_parser',
+                     operation='get_pending_articles')
             return []
     
     async def process_pending_articles(self, batch_size: int = 10, max_articles: Optional[int] = None) -> Dict[str, Any]:

@@ -87,9 +87,7 @@ class FirecrawlClient:
         if not self.session:
             self.session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(
-                    total=40,           # Reduced to 40s (less than asyncio timeout 45s)
-                    sock_connect=5,     # 5 seconds to establish connection (faster detection)
-                    sock_read=30        # 30 seconds to read data (increased for large pages)
+                    total=55           # Меньше чем asyncio timeout (60s) для правильной иерархии
                 ),
                 headers={'Authorization': f'Bearer {self.api_key}'}
             )
@@ -147,6 +145,12 @@ class FirecrawlClient:
                 
         except Exception as e:
             self.logger.warning(f"Failed to resolve redirect {url}: {e}")
+            # Логируем ошибку resolve redirect в JSONL (некритичная)
+            from app_logging import log_error
+            log_error('redirect_resolve_failed', str(e),
+                     url=url,
+                     module='firecrawl_client',
+                     operation='resolve_redirect')
             return url
     
     async def _wait_for_job_completion(self, job_id: str, max_wait: int = None) -> Dict[str, Any]:
@@ -209,6 +213,12 @@ class FirecrawlClient:
                 raise  # Re-raise Firecrawl errors
             except Exception as e:
                 self.logger.warning(f"Error checking job {job_id} status: {e}")
+                # Логируем ошибку проверки статуса job в JSONL
+                from app_logging import log_error
+                log_error('job_status_check_failed', str(e),
+                         job_id=job_id,
+                         module='firecrawl_client',
+                         operation='wait_for_job_completion')
             
             await asyncio.sleep(check_interval)
         

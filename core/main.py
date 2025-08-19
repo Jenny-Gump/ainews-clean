@@ -299,8 +299,10 @@ async def run_continuous_pipeline(max_articles=None, delay_between=5):
             logger.error(f"❌ Ошибка в пайплайне: {e}")
             # Логируем критическую ошибку пайплайна
             log_error('pipeline_fatal_error', str(e),
-                     mode='continuous' if continuous else 'single',
-                     module='main')
+                     mode='continuous',
+                     module='main',
+                     max_articles=max_articles,
+                     delay_between=delay_between)
             result = {'processed_count': 0, 'success_count': 0, 'error_count': 1, 'wordpress_published': 0, 'duration_seconds': 0}
         
         # Выводим финальную статистику
@@ -348,6 +350,11 @@ async def process_specific_article(article_id: str):
             
         except Exception as e:
             logger.error(f"❌ Ошибка при поиске статьи {article_id}: {e}")
+            # Логируем ошибку поиска статьи в JSONL
+            log_error('article_lookup_failed', str(e),
+                     article_id=article_id,
+                     module='main',
+                     operation='process_specific_article')
             return {"success": False, "error": f"Database error: {e}"}
         
         # Обрабатываем через пайплайн
@@ -503,6 +510,11 @@ def cleanup_old_articles(days: int = 30):
         
     except Exception as e:
         logger.error(f"❌ Ошибка при очистке статей: {e}")
+        # Логируем ошибку очистки статей в JSONL
+        log_error('cleanup_articles_failed', str(e),
+                 days=days,
+                 module='main',
+                 operation='cleanup_old_articles')
         raise
 
 
@@ -982,6 +994,11 @@ async def main():
         logger.info("⚠️ Остановлено пользователем")
     except Exception as e:
         logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
+        # Логируем критическую ошибку системы в JSONL
+        log_error('system_critical_error', str(e),
+                 module='main',
+                 operation='main_execution',
+                 args=str(args) if 'args' in locals() else 'unknown')
         sys.exit(1)
 
 

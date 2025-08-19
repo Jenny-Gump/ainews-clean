@@ -114,14 +114,14 @@ async def restore_article_supabase(article_id: str) -> Dict[str, Any]:
     supabase = get_supabase_client()
     
     # Check if article exists and is deleted
-    check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', 1).single().execute()
+    check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', True).single().execute()
     
     if not check_result.data:
         raise HTTPException(status_code=404, detail=f"Deleted article {article_id} not found")
     
     # Restore the article
     update_result = supabase.table('articles').update({
-        'is_deleted': 0,
+        'is_deleted': False,
         'deleted_at': None,
         'deleted_by': None,
         'content_status': 'pending'
@@ -138,14 +138,14 @@ async def delete_article_supabase(article_id: str) -> Dict[str, Any]:
     supabase = get_supabase_client()
     
     # Check if article exists and is not already deleted
-    check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', 0).single().execute()
+    check_result = supabase.table('articles').select('article_id').eq('article_id', article_id).eq('is_deleted', False).single().execute()
     
     if not check_result.data:
         raise HTTPException(status_code=404, detail=f"Article {article_id} not found or already deleted")
     
     # Soft delete the article
     update_result = supabase.table('articles').update({
-        'is_deleted': 1,
+        'is_deleted': True,
         'deleted_at': datetime.now().isoformat(),
         'deleted_by': 'dashboard',
         'content_status': 'deleted'
