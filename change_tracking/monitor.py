@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import uuid
 import json
+import gc  # Для принудительной очистки памяти
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 from urllib.parse import urlparse
@@ -243,13 +244,13 @@ class ChangeMonitor:
                     title = self._extract_title(markdown_content, url)
                     
                     if not existing:
-                        # Создаем новую запись
+                        # Создаем новую запись (БЕЗ полного контента для экономии памяти)
                         success = self.db.create_tracked_article(
                             article_id=article_id,
                             source_id=source_id,
                             url=url,
                             title=title,
-                            content=markdown_content,
+                            content='',  # НЕ сохраняем полный контент
                             content_hash=content_hash
                         )
                         
@@ -285,7 +286,7 @@ class ChangeMonitor:
                     
                     success = self.db.update_tracked_article(
                         article_id=article_id,
-                        content=markdown_content,
+                        content='',  # НЕ сохраняем полный контент для экономии памяти
                         content_hash=content_hash,
                         change_status='changed'
                     )
@@ -356,6 +357,13 @@ class ChangeMonitor:
                     # При первом сканировании НЕ извлекаем URL (сохраняем как baseline)
                     self.logger.info(f"NEW page tracked: {url} - URL extraction skipped (first scan)")
                     result['extracted_urls'] = 0
+                
+                # Очищаем большие переменные для освобождения памяти
+                markdown_content = None
+                scraped_data = None
+                del markdown_content
+                if 'scraped_data' in locals():
+                    del scraped_data
                 
         except asyncio.TimeoutError as e:
             error_msg = f"Timeout scanning {url} after 60s"
@@ -594,7 +602,12 @@ class ChangeMonitor:
                 else:
                     results['errors'] += 1
                 
-                results['details'].append(result)
+                # Сохраняем только минимальную информацию для экономии памяти
+                results['details'].append({
+                    'url': result.get('url'),
+                    'status': result.get('status'),
+                    'urls_found': result.get('extracted_urls', 0)
+                })
                 
                 # Логируем успешное завершение
                 log_operation(
@@ -634,7 +647,7 @@ class ChangeMonitor:
                 results['details'].append({
                     'url': url,
                     'status': 'error',
-                    'error': 'Timeout after 60s'
+                    'urls_found': 0
                 })
                 
             except Exception as e:
@@ -664,13 +677,22 @@ class ChangeMonitor:
                 results['details'].append({
                     'url': url,
                     'status': 'error',
-                    'error': str(e)
+                    'urls_found': 0
                 })
                 
             finally:
                 # ВСЕГДА логируем что источник обработан
                 if i % 10 == 0:  # Каждые 10 источников показываем прогресс
                     self.logger.info(f"Progress: {i}/{total} sources processed")
+                    # Принудительная очистка памяти каждые 10 источников
+                    gc.collect()
+                    self.logger.debug(f"Memory cleanup performed after {i} sources")
+                    
+                    # Очищаем накопленные результаты для экономии памяти
+                    # Сохраняем только последние 10 для отладки
+                    if len(results['details']) > 10:
+                        results['details'] = results['details'][-10:]
+                        self.logger.debug(f"Trimmed results details to last 10 entries")
         
         # Логируем итоговую сводку
         log_operation(
