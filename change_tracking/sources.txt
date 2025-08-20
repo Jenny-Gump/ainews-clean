@@ -41,8 +41,8 @@ https://www.pathai.com/news/
 https://news.mit.edu/topic/artificial-intelligence2
 https://hai.stanford.edu/news
 https://www.perplexity.ai/hub
-https://cerebras.ai/blog
-https://research.runwayml.com/
+https://www.cerebras.ai/blog
+https://runwayml.com/research/
 https://suno.com/blog
 https://blog.cloudflare.com/
 https://cursor.com/blog

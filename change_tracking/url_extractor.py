@@ -71,6 +71,7 @@ class URLExtractor:
             # blog.perplexity.ai редиректит на www.perplexity.ai/hub
             'perplexity.ai': [r'/hub/blog/[^/]+'],  # Реальный путь к блогу
             'www.perplexity.ai': [r'/hub/blog/[^/]+'],  # Hub blog статьи
+            'runwayml.com': [r'/research/', r'/news/'],  # Runway ML research and news
             'the-decoder.com': [r'/[^/]+/$'],
             'techcrunch.com': [r'/category/artificial-intelligence/'],
             'venturebeat.com': [r'/ai/'],
