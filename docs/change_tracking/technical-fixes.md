@@ -1,11 +1,93 @@
 # Technical Fixes & Optimizations
 
-**Версия**: 4.2
-**Последнее обновление**: 19 августа 2025
+**Версия**: 4.4
+**Последнее обновление**: 21 августа 2025
 **Статус**: Production Ready
 
 ## 📋 Обзор
 Документация всех критических исправлений, оптимизаций производительности и архитектурных улучшений системы Change Tracking.
+
+---
+
+## 🔥 v4.4 - Timeout None Bug Fix (21.08.2025)
+
+### Проблема
+- Система зависала после обработки 40+ источников
+- Процесс блокировался на Supabase запросах без таймаута
+- ThreadPoolExecutor получал `timeout=None` и ждал бесконечно
+
+### Причина
+В `change_tracking/database.py` метод `_execute_with_timeout()` получал параметр `timeout=None` по умолчанию. Все вызовы этого метода (строки 527, 558, 582) не передавали timeout, что приводило к `future.result(timeout=None)` - бесконечному ожиданию.
+
+### Решение
+```python
+# Было:
+result = future.result(timeout=timeout)  # timeout мог быть None
+
+# Стало:
+actual_timeout = timeout or self.supabase_timeout  # Всегда есть значение (30 сек)
+result = future.result(timeout=actual_timeout)
+```
+
+### Дополнительные улучшения
+1. **Progress logging в файл:**
+   - Создается `logs/progress.log` для мониторинга
+   - Запись каждые 10 источников с информацией о памяти
+   - Позволяет отслеживать зависания в реальном времени
+
+2. **Connection pool reset:**
+   - Сброс Supabase клиента каждые 10 источников
+   - Предотвращение исчерпания пула соединений
+
+3. **Улучшенные таймауты в supabase_client.py:**
+   ```python
+   httpx.Timeout(
+       connect=5.0,   # 5 секунд на подключение
+       read=30.0,     # 30 секунд на чтение
+       write=10.0,    # 10 секунд на запись
+       pool=60.0      # 60 секунд для пула
+   )
+   ```
+
+### Результат
+- Все 46 источников обрабатываются без зависаний
+- Источники 41 (Perplexity) и 43 (runwayml) больше не вызывают проблем
+- Стабильная работа с предсказуемыми таймаутами
+
+---
+
+## 🔥 v4.3 - ThreadPoolExecutor Hanging Fix (20.08.2025)
+
+### Проблема
+- Процесс change_tracking зависал на Supabase запросах (особенно suno.com)
+- ThreadPoolExecutor не мог прервать блокирующие HTTP операции
+- Процесс не реагировал на SIGTERM, требовался kill -9
+
+### Причина
+ThreadPoolExecutor в `_execute_with_timeout()` создавал deadlock при попытке прервать HTTP запрос внутри supabase-py библиотеки. Таймаут на уровне ThreadPoolExecutor не работал для блокирующих I/O операций.
+
+### Решение
+1. **Удален ThreadPoolExecutor:**
+   - Прямой вызов Supabase без дополнительных потоков
+   - Использование встроенного httpx timeout в Supabase клиенте
+
+2. **Добавлен retry механизм:**
+   ```python
+   for attempt in range(max_retries):  # 3 попытки
+       try:
+           result = query_func()  # Прямой вызов
+           return result
+       except Exception as e:
+           retry_delay = (2 ** attempt)  # 1, 2, 4 секунды
+           if attempt < max_retries - 1:
+               time.sleep(retry_delay)
+   ```
+
+3. **Экспоненциальная задержка:**
+   - 1 секунда после первой ошибки
+   - 2 секунды после второй
+   - 4 секунды после третьей
+
 
 ---
 

@@ -586,6 +586,14 @@ class ChangeMonitor:
             success=True
         )
         
+        # Создаём/очищаем файл прогресса
+        try:
+            with open('logs/progress.log', 'w') as f:
+                f.write(f"{datetime.now().isoformat()} | STARTED: Change Tracking scan of {total} sources\n")
+                f.write(f"{'='*60}\n")
+        except Exception as e:
+            self.logger.debug(f"Could not create progress log: {e}")
+        
         results = {
             'total': total,
             'new': 0,
@@ -710,9 +718,26 @@ class ChangeMonitor:
                 # Очистка памяти после КАЖДОГО источника
                 gc.collect()
                 
-                # ВСЕГДА логируем что источник обработан
-                if i % 10 == 0:  # Каждые 10 источников показываем прогресс
-                    self.logger.info(f"Progress: {i}/{total} sources processed")
+                # СБРОС CONNECTION POOL каждые 10 источников
+                if i % 10 == 0:  # Каждые 10 источников
+                    self.logger.info(f"Progress: {i}/{total} sources processed - resetting connection pool")
+                    
+                    # Логирование прогресса в файл для мониторинга
+                    try:
+                        import psutil
+                        process = psutil.Process()
+                        memory_mb = process.memory_info().rss / 1024 / 1024
+                        with open('logs/progress.log', 'a') as f:
+                            f.write(f"{datetime.now().isoformat()} | Progress: {i}/{total} sources | Memory: {memory_mb:.1f}MB | Status: Running\n")
+                            f.flush()  # Сразу записываем на диск
+                    except Exception as e:
+                        self.logger.debug(f"Could not write progress: {e}")
+                    
+                    # КРИТИЧНО: Сбрасываем Supabase клиент для очистки соединений
+                    if hasattr(self.db, 'supabase') and hasattr(self.db.supabase, 'reset_client'):
+                        self.db.supabase.reset_client()
+                        self.logger.info("✅ Supabase connection pool reset after 10 sources")
+                    
                     # Дополнительная глубокая очистка памяти каждые 10 источников
                     gc.collect(2)  # Полная сборка мусора всех поколений
                     self.logger.debug(f"Deep memory cleanup performed after {i} sources")
@@ -736,10 +761,47 @@ class ChangeMonitor:
             success=True
         )
         
+        # Финальная запись в progress.log
+        try:
+            with open('logs/progress.log', 'a') as f:
+                f.write(f"{'='*60}\n")
+                f.write(f"{datetime.now().isoformat()} | COMPLETED: {results['total']} sources scanned\n")
+                f.write(f"Results: {results['changed']} changed, {results['new']} new, {results['unchanged']} unchanged, {results['errors']} errors\n")
+        except Exception as e:
+            self.logger.debug(f"Could not write final progress: {e}")
+        
+        # Обновляем статус завершения в global_config
+        try:
+            from services.supabase_client import SupabaseClient
+            supabase_client = SupabaseClient()
+            supabase_client.supabase.table('global_config').upsert({
+                'key': 'change_tracking_last_scan',
+                'value': datetime.now(timezone.utc).isoformat(),
+                'description': 'Last change tracking scan completion timestamp',
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }, on_conflict='key').execute()
+            
+            # Также обновляем статус процесса
+            supabase_client.supabase.table('global_config').upsert({
+                'key': 'change_tracking_status',
+                'value': 'completed',
+                'description': 'Change tracking process status',
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }, on_conflict='key').execute()
+            
+            self.logger.info("Updated change tracking status in global_config")
+        except Exception as e:
+            self.logger.warning(f"Could not update global_config: {e}")
+        
         self.logger.info(f"Sequential scan complete: {results['new']} new, "
                         f"{results['changed']} changed, "
                         f"{results['unchanged']} unchanged, "
                         f"{results['errors']} errors")
+        
+        # Ensure proper process termination
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
         
         return results
     

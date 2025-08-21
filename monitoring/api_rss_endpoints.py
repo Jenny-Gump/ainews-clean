@@ -133,6 +133,23 @@ async def get_extract_status():
         # Check if RSS discovery or RSS+Tracking script is running
         rss_running = check_process_with_retry(is_rss_process, max_retries=2, delay=0.3)
         
+        # Also check PID file for RSS+Tracking
+        pid_file = "/Users/skynet/Desktop/AI DEV/ainews-clean/data/rss_tracking_process.pid"
+        if not rss_running and os.path.exists(pid_file):
+            # Check if PID in file is still running
+            try:
+                with open(pid_file, 'r') as f:
+                    pid = int(f.read().strip())
+                    # Check if process exists
+                    try:
+                        os.kill(pid, 0)  # Doesn't actually kill, just checks
+                        rss_running = True
+                    except OSError:
+                        # Process doesn't exist, remove stale PID file
+                        os.remove(pid_file)
+            except:
+                pass
+        
         # Check if single pipeline is running (with more retries for slower startup)
         single_pipeline_running = check_process_with_retry(is_pipeline_process, max_retries=3, delay=0.5)
         

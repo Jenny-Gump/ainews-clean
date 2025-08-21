@@ -258,6 +258,18 @@ async def stop_rss_discovery():
         except:
             pass
         
+        # Update status in global_config
+        try:
+            if monitoring_db:
+                monitoring_db.supabase.table('global_config').upsert({
+                    'key': 'change_tracking_status',
+                    'value': 'stopped',
+                    'description': 'Change tracking process status',
+                    'updated_at': datetime.now().isoformat()
+                }, on_conflict='key').execute()
+        except:
+            pass
+        
         # Log the operation with details about cleanup
         if monitoring_db:
             try:

@@ -236,10 +236,27 @@ async def run_rss_discovery():
         log_operation('rss_discovery_start')
         
         discovery = ExtractRSSDiscovery()
-        stats = await discovery.discover_from_sources()
         
-        logger.info(f"✅ RSS Discovery завершен: {stats}")
-        return stats
+        # Добавляем общий таймаут на весь RSS discovery (5 минут)
+        try:
+            logger.info("⏰ Установлен общий таймаут 5 минут на RSS Discovery")
+            stats = await asyncio.wait_for(
+                discovery.discover_from_sources(),
+                timeout=300  # 5 минут
+            )
+            logger.info(f"✅ RSS Discovery завершен: {stats}")
+            return stats
+            
+        except asyncio.TimeoutError:
+            logger.error("❌ RSS Discovery превысил общий таймаут в 5 минут!")
+            log_error('rss_discovery_timeout', 'Overall timeout exceeded (300s)',
+                     module='main',
+                     operation='run_rss_discovery')
+            # Возвращаем частичную статистику если доступна
+            if hasattr(discovery, 'stats'):
+                logger.warning(f"⚠️ Частичная статистика: {discovery.stats}")
+                return discovery.stats
+            return {'error': 'Overall timeout exceeded', 'timeout': 300}
 
 
 async def run_single_pipeline():

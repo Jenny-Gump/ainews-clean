@@ -80,13 +80,19 @@ if [ $RSS_EXIT_CODE -eq 0 ]; then
     SCAN_EXIT_CODE=$?
     TRACKING_PID=""  # Clear PID after completion
     
+    # Log exit code for debugging
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Change Tracking scan exited with code: $SCAN_EXIT_CODE"
+    
     if [ $SCAN_EXIT_CODE -eq 0 ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Change Tracking scan completed successfully"
         
         # Log scan completion
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Change Tracking scan completed"
         
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Exporting new articles..."
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting 3 seconds before export..."
+        sleep 3
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting export of new articles..."
         
         # Log export start
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] 📤 Exporting Change Tracking articles"

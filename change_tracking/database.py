@@ -23,22 +23,20 @@ class ChangeTrackingDB:
         self.supabase = DatabaseConfig.get_database()  # Supabase client
         self.supabase_timeout = 30  # Таймаут для Supabase запросов в секундах
     
-    def _execute_with_timeout(self, query_func, query_name: str, timeout: int = None):
+    def _execute_with_timeout(self, query_func, query_name: str, timeout: int = None, max_retries: int = 3):
         """
-        Выполняет Supabase запрос с таймаутом и централизованным логированием
+        Выполняет Supabase запрос с retry механизмом и централизованным логированием
         
         Args:
             query_func: Функция запроса к Supabase
             query_name: Имя запроса для логирования
-            timeout: Таймаут в секундах
+            timeout: Таймаут в секундах (не используется, для совместимости)
+            max_retries: Максимальное количество попыток
             
         Returns:
             Результат запроса или None при ошибке
         """
         from app_logging import log_operation
-        import concurrent.futures
-        
-        timeout = timeout or self.supabase_timeout
         
         # Логируем начало операции
         log_operation(
@@ -46,88 +44,111 @@ class ChangeTrackingDB:
             phase='database',
             message=f'🔍 Supabase query: {query_name}',
             query_name=query_name,
-            timeout_seconds=timeout,
+            timeout_seconds=self.supabase_timeout,
             success=True
         )
         
         start_time = time.time()
+        last_error = None
         
-        try:
-            # Используем ThreadPoolExecutor для таймаута
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(query_func)
-                result = future.result(timeout=timeout)
-            
-            duration = time.time() - start_time
-            
-            # Логируем успешное завершение
-            log_operation(
-                'supabase_query_complete',
-                phase='database',
-                message=f'✅ Supabase query completed: {query_name}',
-                query_name=query_name,
-                duration_seconds=duration,
-                success=True
-            )
-            
-            if duration > 5:
-                self.logger.warning(f"Slow Supabase query: {query_name} took {duration:.2f}s")
+        # Retry с экспоненциальной задержкой
+        for attempt in range(max_retries):
+            try:
+                # РЕАЛЬНЫЙ ТАЙМАУТ через ThreadPoolExecutor
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(query_func)
+                    try:
+                        # КРИТИЧЕСКИЙ ФИКС: используем self.supabase_timeout если timeout=None
+                        actual_timeout = timeout or self.supabase_timeout
+                        result = future.result(timeout=actual_timeout)
+                    except concurrent.futures.TimeoutError:
+                        actual_timeout = timeout or self.supabase_timeout
+                        self.logger.error(f"Query timeout after {actual_timeout}s: {query_name}")
+                        log_operation(
+                            'supabase_query_timeout',
+                            phase='database',
+                            message=f'⏱️ Query timeout after {actual_timeout}s: {query_name}',
+                            query_name=query_name,
+                            timeout_seconds=actual_timeout,
+                            success=False
+                        )
+                        raise TimeoutError(f"Query timeout after {actual_timeout}s: {query_name}")
+                
+                duration = time.time() - start_time
+                
+                # Логируем успешное завершение
                 log_operation(
-                    'supabase_slow_query',
+                    'supabase_query_complete',
                     phase='database',
-                    message=f'⚠️ Slow query: {query_name} ({duration:.2f}s)',
+                    message=f'✅ Supabase query completed: {query_name}',
                     query_name=query_name,
                     duration_seconds=duration,
                     success=True
                 )
-            
-            return result
-            
-        except concurrent.futures.TimeoutError:
-            duration = time.time() - start_time
-            error_msg = f"Supabase query timeout: {query_name} after {duration:.2f}s"
-            self.logger.error(error_msg)
-            
-            # Централизованное логирование таймаута
-            log_error('supabase_timeout', error_msg, 
-                     query_name=query_name, 
-                     timeout_seconds=timeout,
-                     actual_duration=duration,
-                     module='change_tracking.database')
-            
-            log_operation(
-                'supabase_query_timeout',
-                phase='database',
-                message=f'❌ Query timeout: {query_name}',
-                query_name=query_name,
-                duration_seconds=duration,
-                timeout_seconds=timeout,
-                success=False
-            )
-            return None
-            
-        except Exception as e:
-            duration = time.time() - start_time
-            error_msg = f"Supabase query failed: {query_name} after {duration:.2f}s: {str(e)}"
-            self.logger.error(error_msg)
-            
-            # Централизованное логирование ошибки
-            log_error('supabase_error', error_msg,
-                     query_name=query_name,
-                     error=str(e),
-                     duration_seconds=duration,
-                     module='change_tracking.database')
-            
-            log_operation(
-                'supabase_query_error',
-                phase='database',
-                message=f'❌ Query failed: {query_name}',
-                query_name=query_name,
-                error=str(e),
-                duration_seconds=duration,
-                success=False
-            )
-            return None
+                
+                if duration > 5:
+                    self.logger.warning(f"Slow Supabase query: {query_name} took {duration:.2f}s")
+                    log_operation(
+                        'supabase_slow_query',
+                        phase='database',
+                        message=f'⚠️ Slow query: {query_name} ({duration:.2f}s)',
+                        query_name=query_name,
+                        duration_seconds=duration,
+                        success=True
+                    )
+                
+                return result
+                
+            except Exception as e:
+                last_error = e
+                retry_delay = (2 ** attempt)  # 1, 2, 4 секунды
+                
+                if attempt < max_retries - 1:
+                    self.logger.warning(
+                        f"Supabase query failed (attempt {attempt + 1}/{max_retries}): {query_name}. "
+                        f"Error: {str(e)}. Retrying in {retry_delay}s..."
+                    )
+                    
+                    log_operation(
+                        'supabase_query_retry',
+                        phase='database',
+                        message=f'⚠️ Query retry {attempt + 1}/{max_retries}: {query_name}',
+                        query_name=query_name,
+                        attempt=attempt + 1,
+                        max_attempts=max_retries,
+                        retry_delay=retry_delay,
+                        error=str(e),
+                        success=False
+                    )
+                    
+                    time.sleep(retry_delay)
+                else:
+                    # Последняя попытка не удалась
+                    duration = time.time() - start_time
+                    error_msg = f"Supabase query failed after {max_retries} attempts: {query_name}. Error: {str(last_error)}"
+                    self.logger.error(error_msg)
+                    
+                    # Централизованное логирование ошибки
+                    log_error('supabase_error', error_msg,
+                             query_name=query_name,
+                             error=str(last_error),
+                             duration_seconds=duration,
+                             attempts=max_retries,
+                             module='change_tracking.database')
+                    
+                    log_operation(
+                        'supabase_query_error',
+                        phase='database',
+                        message=f'❌ Query failed after {max_retries} attempts: {query_name}',
+                        query_name=query_name,
+                        error=str(last_error),
+                        duration_seconds=duration,
+                        attempts=max_retries,
+                        success=False
+                    )
+                    
+                    return None
     
     def create_tracked_article(
         self, 

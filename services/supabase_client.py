@@ -8,6 +8,7 @@ from typing import Optional, Dict, List, Any
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,37 @@ class SupabaseClient:
         # Use service key for admin operations if available
         key = self.service_key if self.service_key else self.anon_key
         
+        # Configure httpx with proper timeouts and connection limits
+        httpx_client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=5.0,    # 5 seconds to connect (not 120!)
+                read=30.0,      # 30 seconds to read response
+                write=10.0,     # 10 seconds to write request
+                pool=60.0       # 60 seconds for connection pool
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=5,  # Limit persistent connections
+                max_connections=10             # Total connection limit
+            )
+        )
+        
         try:
-            self.client: Client = create_client(self.url, key)
-            logger.info(f"Connected to Supabase: {self.url}")
+            # Import client options for proper configuration
+            from supabase.lib.client_options import SyncClientOptions
+            
+            # Create options with our configured httpx client
+            options = SyncClientOptions(
+                httpx_client=httpx_client,
+                postgrest_client_timeout=30  # Reduce from default 120 to 30
+            )
+            
+            self.client: Client = create_client(self.url, key, options)
+            logger.info(f"Connected to Supabase with optimized timeouts: {self.url}")
+            
+            # Track requests for connection pool management
+            self.request_count = 0
+            self.max_requests_per_session = 100
+            
         except Exception as e:
             logger.error(f"Failed to connect to Supabase: {e}")
             raise
@@ -515,6 +544,51 @@ class SupabaseClient:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         pass
+    
+    def reset_client(self):
+        """Reset Supabase client to clear connection pool"""
+        try:
+            # Close existing httpx client if it exists
+            if hasattr(self.client, '_client') and hasattr(self.client._client, 'close'):
+                self.client._client.close()
+                logger.info("Closed existing Supabase httpx client")
+            
+            # Recreate the client with fresh connections
+            key = self.service_key if self.service_key else self.anon_key
+            
+            # Configure new httpx client
+            httpx_client = httpx.Client(
+                timeout=httpx.Timeout(
+                    connect=5.0,
+                    read=30.0,
+                    write=10.0,
+                    pool=60.0
+                ),
+                limits=httpx.Limits(
+                    max_keepalive_connections=5,
+                    max_connections=10
+                )
+            )
+            
+            from supabase.lib.client_options import SyncClientOptions
+            options = SyncClientOptions(
+                httpx_client=httpx_client,
+                postgrest_client_timeout=30
+            )
+            
+            self.client = create_client(self.url, key, options)
+            self.request_count = 0
+            logger.info("Supabase client reset with fresh connection pool")
+            
+        except Exception as e:
+            logger.error(f"Failed to reset Supabase client: {e}")
+    
+    def check_and_reset_if_needed(self):
+        """Check request count and reset client if needed"""
+        self.request_count += 1
+        if self.request_count >= self.max_requests_per_session:
+            logger.info(f"Resetting Supabase client after {self.request_count} requests")
+            self.reset_client()
     
     
     def get_article_for_wordpress_prep(self, article_id: str) -> dict:

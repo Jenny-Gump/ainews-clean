@@ -346,6 +346,18 @@ async def start_rss_and_tracking():
         
         active_processes["rss_discovery"] = process
         
+        # Update status in global_config
+        try:
+            if monitoring_db:
+                monitoring_db.supabase.table('global_config').upsert({
+                    'key': 'change_tracking_status',
+                    'value': 'running',
+                    'description': 'Change tracking process status',
+                    'updated_at': datetime.now().isoformat()
+                }, on_conflict='key').execute()
+        except:
+            pass
+        
         # Log the operation
         if monitoring_db:
             try:

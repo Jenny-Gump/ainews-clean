@@ -158,6 +158,7 @@ UPDATE sources SET error_count = 0 WHERE source_id = 'source_name';
 
 **Симптомы:**
 - Tracked URLs не экспортируются в основной pipeline
+- Процесс зависает при сканировании источников
 
 **Решения:**
 1. Проверить статистику:
@@ -171,6 +172,34 @@ python core/main.py --change-tracking --export-changes
 ```
 
 3. Модуль изолирован - не влияет на основной pipeline
+
+### 🔴 Change Tracking зависает на Supabase запросах
+
+**Симптомы:**
+- Процесс change_tracking зависает на определенном источнике
+- В логах видно "Supabase query: get_existing_urls_for_source" без завершения
+- Процесс не реагирует на SIGTERM
+
+**Причина:**
+ThreadPoolExecutor не может корректно прервать блокирующие HTTP запросы к Supabase
+
+**Решения:**
+1. Убить зависший процесс:
+```bash
+ps aux | grep "change_tracking"
+kill -9 <PID>
+```
+
+2. Проверить проблемный источник в БД:
+```sql
+SELECT COUNT(*) FROM tracked_urls 
+WHERE source_page_url = 'https://проблемный-источник.com/blog';
+```
+
+3. **Исправление реализовано (август 2025):**
+- Удален ThreadPoolExecutor из `_execute_with_timeout`
+- Добавлен retry механизм (3 попытки с задержками 1, 2, 4 секунды)
+- Используется встроенный timeout в httpx клиенте Supabase
 
 ## Полезные команды
 
