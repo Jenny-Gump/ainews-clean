@@ -77,10 +77,15 @@ graph TD
 ### Phase 4: WordPress Preparation
 1. Load articles with status 'completed'
 2. Translate content using DeepSeek Reasoner with external prompt (`prompts/article_translator.txt`)
-3. Generate tags using DeepSeek Chat with external prompt (`prompts/tag_generator.txt`)
-4. Generate SEO metadata (Yoast compatible)
-5. Categorize (max 1) and tag articles (2-5 tags from 74 curated)
-6. Save to wordpress_articles table
+3. **NEW**: Apply second DeepSeek Reasoner for text refinement with external prompt (`prompts/article_refiner.txt`)
+   - Улучшает качество русского текста
+   - Исправляет англицизмы и неестественные конструкции
+   - Сохраняет HTML структуру и метки [IMAGE_N]
+   - При ошибке использует результат первого Reasoner
+4. Generate tags using DeepSeek Chat with external prompt (`prompts/tag_generator.txt`)
+5. Generate SEO metadata (Yoast compatible)
+6. Categorize (max 1) and tag articles (2-5 tags from 74 curated)
+7. Save to wordpress_articles table with raw data from both Reasoners
 
 ### Phase 5: WordPress Publishing
 1. Create WordPress posts via REST API (draft status)
@@ -169,6 +174,10 @@ CREATE TABLE wordpress_articles (
     source_language TEXT,
     target_language TEXT DEFAULT 'ru',
     llm_model TEXT,
+    -- NEW: Second Reasoner fields
+    reasoner_v1_raw TEXT,  -- Raw JSON response from first Reasoner
+    reasoner_v2_raw TEXT,  -- Raw JSON response from second Reasoner
+    reasoner_v2_applied BOOLEAN DEFAULT FALSE,  -- Flag if second Reasoner was applied
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -222,6 +231,11 @@ DEEPSEEK_API_KEY       # DeepSeek for article translation
 WORDPRESS_API_URL      # WordPress REST API endpoint
 WORDPRESS_USERNAME     # WordPress username
 WORDPRESS_APP_PASSWORD # WordPress application password
+
+# Second Reasoner (NEW)
+ENABLE_SECOND_REASONER # Enable second text refinement stage (default: true)
+SECOND_REASONER_MODEL  # Model for second Reasoner (default: deepseek-reasoner)
+SECOND_REASONER_TIMEOUT # Timeout in seconds (default: 90)
 
 # System
 SUPABASE_URL          # Supabase project URL

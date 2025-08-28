@@ -15,6 +15,7 @@ import base64
 import mimetypes
 from pathlib import Path
 import os
+import time
 from openai import OpenAI
 from httpx import ReadError, ConnectError, TimeoutException
 
@@ -298,14 +299,153 @@ class WordPressPublisher:
             
             # No media processing needed
             
+            # Save raw response from first Reasoner
+            reasoner_v1_raw = content
+            
+            # Apply second Reasoner if enabled
+            if getattr(self.config, 'enable_second_reasoner', False):
+                logger.info("Applying second Reasoner for text refinement...")
+                refined_result = self._apply_second_reasoner(result, article.get('article_id'))
+                if refined_result:
+                    result = refined_result
+                    logger.info("Second Reasoner successfully applied")
+                else:
+                    logger.warning("Second Reasoner failed, using first result")
+            
             # Add metadata
             result['llm_model'] = self.config.wordpress_llm_model
             result['source_language'] = article.get('language', 'en')
+            result['reasoner_v1_raw'] = reasoner_v1_raw  # Store for later saving
             
             return result
             
         except Exception as e:
             logger.error(f"LLM processing error: {str(e)}")
+            return None
+    
+    def _apply_second_reasoner(self, first_result: Dict[str, Any], article_id: str) -> Optional[Dict[str, Any]]:
+        """Apply second Reasoner to refine the translated text"""
+        try:
+            # Load the refiner prompt
+            refiner_prompt = load_prompt('article_refiner',
+                title=first_result.get('title', ''),
+                content=first_result.get('content', ''),
+                excerpt=first_result.get('excerpt', ''),
+                slug=first_result.get('slug', ''),
+                categories=json.dumps(first_result.get('categories', []), ensure_ascii=False),
+                _yoast_wpseo_title=first_result.get('_yoast_wpseo_title', ''),
+                _yoast_wpseo_metadesc=first_result.get('_yoast_wpseo_metadesc', ''),
+                image_caption=first_result.get('image_caption', ''),
+                focus_keyword=first_result.get('focus_keyword', '')
+            )
+            
+            response = None
+            second_reasoner_model = getattr(self.config, 'second_reasoner_model', 'deepseek-reasoner')
+            second_reasoner_timeout = getattr(self.config, 'second_reasoner_timeout', 90)
+            
+            # Try second Reasoner with retry
+            for attempt in range(2):  # Only 2 attempts for second stage
+                try:
+                    # Log operation
+                    from app_logging import log_operation
+                    log_operation(f'Second Reasoner ({attempt + 1}/2) начинает улучшение текста...',
+                        model=second_reasoner_model,
+                        processing_stage='text_refinement',
+                        article_id=article_id,
+                        phase='wordpress_prep_v2',
+                        retry_attempt=attempt + 1,
+                        max_attempts=2
+                    )
+                    
+                    logger.info(f"Calling Second Reasoner (attempt {attempt + 1}/2) with model: {second_reasoner_model}")
+                    response = self.deepseek_client.chat.completions.create(
+                        model=second_reasoner_model,
+                        messages=[
+                            {"role": "user", "content": refiner_prompt}
+                        ],
+                        temperature=0.3,  # Lower temperature for more consistent refinement
+                        timeout=second_reasoner_timeout
+                    )
+                    logger.info("Second Reasoner API responded successfully")
+                    
+                    # Log success
+                    tokens_input = len(refiner_prompt) // 4
+                    tokens_output = len(response.choices[0].message.content) // 4
+                    cost_usd = (tokens_input * 0.14 + tokens_output * 0.28) / 1_000_000
+                    log_operation(f'✅ Second Reasoner ({attempt + 1}/2) улучшение завершено ({tokens_input + tokens_output} токенов)',
+                        model=second_reasoner_model,
+                        tokens_input=tokens_input,
+                        tokens_output=tokens_output,
+                        tokens_approx=tokens_input + tokens_output,
+                        cost_usd=cost_usd,
+                        success=True,
+                        retry_attempt=attempt + 1,
+                        max_attempts=2,
+                        processing_stage='text_refinement',
+                        article_id=article_id,
+                        phase='wordpress_prep_v2'
+                    )
+                    break  # Success
+                    
+                except Exception as e:
+                    logger.warning(f"Second Reasoner attempt {attempt + 1} failed: {str(e)}")
+                    
+                    # Log failure
+                    from app_logging import log_operation
+                    log_operation(f'⚠️ Second Reasoner ({attempt + 1}/2) ошибка',
+                        model=second_reasoner_model,
+                        success=False,
+                        retry_attempt=attempt + 1,
+                        max_attempts=2,
+                        processing_stage='text_refinement',
+                        article_id=article_id,
+                        phase='wordpress_prep_v2',
+                        error_message=str(e)[:200]
+                    )
+                    
+                    if attempt == 1:  # Last attempt
+                        return None
+                    time.sleep(3)  # Wait before retry
+            
+            if not response:
+                return None
+            
+            # Parse response
+            content = response.choices[0].message.content
+            logger.debug(f"Second Reasoner response length: {len(content)} chars")
+            
+            # Try to extract JSON
+            try:
+                refined_result = json.loads(content)
+                logger.info("Successfully parsed Second Reasoner JSON response")
+            except json.JSONDecodeError:
+                # Try regex extraction
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        refined_result = json.loads(json_match.group())
+                        logger.info("Successfully extracted Second Reasoner JSON using regex")
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse Second Reasoner JSON: {content[:500]}")
+                        return None
+                else:
+                    logger.error(f"No JSON found in Second Reasoner response")
+                    return None
+            
+            # Validate that essential fields are present
+            if 'content' not in refined_result:
+                logger.error("Second Reasoner response missing 'content' field")
+                return None
+            
+            # Store raw response for later
+            refined_result['reasoner_v2_raw'] = content
+            refined_result['reasoner_v2_applied'] = True
+            
+            return refined_result
+            
+        except Exception as e:
+            logger.error(f"Second Reasoner error: {str(e)}")
             return None
     
     async def _generate_tags_with_llm(self, translated_article: Dict[str, Any]) -> List[str]:
@@ -638,7 +778,11 @@ class WordPressPublisher:
                     'translated_at': datetime.now().isoformat(),
                     'source_language': wp_data.get('source_language', 'en'),
                     'target_language': 'ru',
-                    'llm_model': wp_data.get('llm_model')
+                    'llm_model': wp_data.get('llm_model'),
+                    # New fields for Reasoner V2
+                    'reasoner_v1_raw': wp_data.get('reasoner_v1_raw'),
+                    'reasoner_v2_raw': wp_data.get('reasoner_v2_raw'),
+                    'reasoner_v2_applied': wp_data.get('reasoner_v2_applied', False)
                 }
                 
                 # Insert into wordpress_articles

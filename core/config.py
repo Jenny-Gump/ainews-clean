@@ -36,6 +36,11 @@ class Config:
     use_custom_meta_endpoint = os.getenv('USE_CUSTOM_META_ENDPOINT', 'false').lower() == 'true'
     custom_post_meta_api_key = os.getenv('CUSTOM_POST_META_API_KEY', '')
     
+    # Second Reasoner настройки (для улучшения русского текста)
+    enable_second_reasoner = os.getenv('ENABLE_SECOND_REASONER', 'true').lower() == 'true'
+    second_reasoner_model = os.getenv('SECOND_REASONER_MODEL', 'deepseek-reasoner')
+    second_reasoner_timeout = int(os.getenv('SECOND_REASONER_TIMEOUT', '90'))
+    
     # Ограничения и тайм-ауты
     REQUEST_TIMEOUT = 120  # 2 минуты на Extract запрос
     MAX_RETRIES = 2
