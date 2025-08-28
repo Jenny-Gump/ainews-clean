@@ -2,11 +2,26 @@
   "mcpServers": {
     "ainews-sqlite": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "/Users/skynet/Desktop/AI DEV/ainews-clean/data/ainews.db"
+      ]
     },
     "ainews-monitoring-db": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "/Users/skynet/Desktop/AI DEV/ainews-clean/data/monitoring.db"
+      ]
+    },
+    "postgres-arxiv": {
+      "command": "/Users/skynet/.local/bin/postgres-mcp",
+      "args": [
+        "postgresql://skynet@localhost:5432/arxiv_raw_data",
+        "--access-mode=unrestricted"
+      ]
     }
   }
 }
